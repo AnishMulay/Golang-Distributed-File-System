@@ -7,6 +7,18 @@ import (
 	"sync"
 )
 
+// TCPPeer represents a remote peer in the network (over an established TCP connection)
+type TCPPeer struct {
+	// conn is the underlying TCP connection
+	conn net.Conn
+
+	// this defines the type of peer this is
+	// if true, then this peer initiated the connection
+	// if false, then this peer was dialed by another peer
+	outBound bool
+}
+
+// TCPTransport handles communication between nodes(peers) over TCP
 type TCPTransport struct {
 	listenAddress string
 	listener      net.Listener
