@@ -5,4 +5,6 @@ type Peer interface{}
 
 // Transport handles communication between nodes(peers)
 // Can be TCP, UDP, Websockets, etc
-type Transport interface{}
+type Transport interface {
+	ListenAndAccept() error
+}
