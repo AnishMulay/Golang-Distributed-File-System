@@ -1,7 +1,16 @@
 package main
 
-import "fmt"
+import (
+	"log"
+
+	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
+)
 
 func main() {
-	fmt.Println("Distributed File Storage System Started")
+	tr := peertopeer.NewTCPTransport(":3000")
+	if err := tr.ListenAndAccept(); err != nil {
+		log.Fatal(err)
+	}
+
+	select {}
 }

@@ -18,6 +18,13 @@ type TCPPeer struct {
 	outBound bool
 }
 
+func NewTCPPeer(conn net.Conn, outBound bool) *TCPPeer {
+	return &TCPPeer{
+		conn:     conn,
+		outBound: outBound,
+	}
+}
+
 // TCPTransport handles communication between nodes(peers) over TCP
 type TCPTransport struct {
 	listenAddress string
@@ -58,5 +65,7 @@ func (t *TCPTransport) startAcceptLoop() {
 }
 
 func (t *TCPTransport) handleConn(conn net.Conn) {
-	fmt.Println("Handling connection from", conn.RemoteAddr())
+	peer := NewTCPPeer(conn, true)
+
+	fmt.Println("Handling connection from", peer)
 }
