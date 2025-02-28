@@ -10,6 +10,7 @@ func main() {
 	tcpconfig := peertopeer.TCPTransportConfig{
 		ListenAddress: ":3000",
 		HandShakeFunc: peertopeer.NOPEHandShakeFunc,
+		Decoder:       peertopeer.GOBDecoder{},
 	}
 
 	tr := peertopeer.NewTCPTransport(tcpconfig)
