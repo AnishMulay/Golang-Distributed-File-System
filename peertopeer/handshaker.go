@@ -1,7 +1,7 @@
 package peertopeer
 
-type HandShakeFunc func(any) error
+type HandShakeFunc func(Peer) error
 
-func NOPEHandShakeFunc(any) error {
+func NOPEHandShakeFunc(Peer) error {
 	return nil
 }

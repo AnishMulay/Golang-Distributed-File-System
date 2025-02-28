@@ -1,7 +1,6 @@
 package peertopeer
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -25,28 +24,31 @@ func NewTCPPeer(conn net.Conn, outBound bool) *TCPPeer {
 	}
 }
 
+type TCPTransportConfig struct {
+	ListenAddress string
+	HandShakeFunc HandShakeFunc
+	Decoder       Decoder
+}
+
 // TCPTransport handles communication between nodes(peers) over TCP
 type TCPTransport struct {
-	listenAddress string
-	listener      net.Listener
-	shakeHands    HandShakeFunc
-	decoder       Decoder
+	TCPTransportConfig
+	listener net.Listener
 
 	mutex sync.RWMutex
 	peers map[net.Addr]Peer
 }
 
-func NewTCPTransport(listenAddress string) *TCPTransport {
+func NewTCPTransport(config TCPTransportConfig) *TCPTransport {
 	return &TCPTransport{
-		shakeHands:    NOPEHandShakeFunc,
-		listenAddress: listenAddress,
+		TCPTransportConfig: config,
 	}
 }
 
 func (t *TCPTransport) ListenAndAccept() error {
 	var err error
 
-	t.listener, err = net.Listen("tcp", t.listenAddress)
+	t.listener, err = net.Listen("tcp", t.ListenAddress)
 	if err != nil {
 		return err
 	}
@@ -73,19 +75,18 @@ type Temp struct{}
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	peer := NewTCPPeer(conn, true)
 
-	if err := t.shakeHands(peer); err != nil {
+	if err := t.HandShakeFunc(peer); err != nil {
 		log.Println("Error shaking hands with peer:", err)
+		conn.Close()
 		return
 	}
 
 	// read loop
 	msg := &Temp{}
 	for {
-		if err := t.decoder.Decode(conn, msg); err != nil {
+		if err := t.Decoder.Decode(conn, msg); err != nil {
 			log.Println("TCP error decoding message:", err)
 			continue
 		}
 	}
-
-	fmt.Println("Handling connection from", peer)
 }

@@ -7,7 +7,12 @@ import (
 )
 
 func main() {
-	tr := peertopeer.NewTCPTransport(":3000")
+	tcpconfig := peertopeer.TCPTransportConfig{
+		ListenAddress: ":3000",
+		HandShakeFunc: peertopeer.NOPEHandShakeFunc,
+	}
+
+	tr := peertopeer.NewTCPTransport(tcpconfig)
 	if err := tr.ListenAndAccept(); err != nil {
 		log.Fatal(err)
 	}
