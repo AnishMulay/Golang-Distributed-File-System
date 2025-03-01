@@ -14,6 +14,14 @@ func main() {
 	}
 
 	tr := peertopeer.NewTCPTransport(tcpconfig)
+
+	go func() {
+		for {
+			msg := <-tr.Consume()
+			log.Printf("Received message from %s: %s", msg.From, msg.Payload)
+		}
+	}()
+
 	if err := tr.ListenAndAccept(); err != nil {
 		log.Fatal(err)
 	}

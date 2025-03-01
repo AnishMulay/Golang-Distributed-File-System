@@ -24,6 +24,11 @@ func NewTCPPeer(conn net.Conn, outBound bool) *TCPPeer {
 	}
 }
 
+// Close closes the underlying TCP connection
+func (p *TCPPeer) Close() error {
+	return p.conn.Close()
+}
+
 type TCPTransportConfig struct {
 	ListenAddress string
 	HandShakeFunc HandShakeFunc
@@ -34,6 +39,7 @@ type TCPTransportConfig struct {
 type TCPTransport struct {
 	TCPTransportConfig
 	listener net.Listener
+	rpcch    chan RPC
 
 	mutex sync.RWMutex
 	peers map[net.Addr]Peer
@@ -42,7 +48,13 @@ type TCPTransport struct {
 func NewTCPTransport(config TCPTransportConfig) *TCPTransport {
 	return &TCPTransport{
 		TCPTransportConfig: config,
+		rpcch:              make(chan RPC),
 	}
+}
+
+// Consume returns a channel which can be used to receive messages from other peers
+func (t *TCPTransport) Consume() <-chan RPC {
+	return t.rpcch
 }
 
 func (t *TCPTransport) ListenAndAccept() error {
@@ -80,13 +92,14 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 	}
 
 	// read loop
-	msg := &Message{}
+	rpc := RPC{}
 	for {
-		if err := t.Decoder.Decode(conn, msg); err != nil {
+		if err := t.Decoder.Decode(conn, &rpc); err != nil {
 			log.Println("TCP error decoding message:", err)
 			continue
 		}
 
-		log.Println("Received message from", conn.RemoteAddr(), ":", msg)
+		rpc.From = conn.RemoteAddr()
+		log.Println("Received message from", rpc.From, ":", rpc.Payload)
 	}
 }
