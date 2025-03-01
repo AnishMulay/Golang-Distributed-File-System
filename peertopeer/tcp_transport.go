@@ -33,6 +33,7 @@ type TCPTransportConfig struct {
 	ListenAddress string
 	HandShakeFunc HandShakeFunc
 	Decoder       Decoder
+	OnPeer        func(Peer) error
 }
 
 // TCPTransport handles communication between nodes(peers) over TCP
@@ -84,19 +85,27 @@ func (t *TCPTransport) startAcceptLoop() {
 
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	peer := NewTCPPeer(conn, true)
+	var err error
+	defer func() {
+		log.Println("Closing connection with", conn.RemoteAddr(), ":", err)
+		conn.Close()
+	}()
 
 	if err := t.HandShakeFunc(peer); err != nil {
-		log.Println("Error shaking hands with peer:", err)
-		conn.Close()
 		return
+	}
+
+	if t.OnPeer != nil {
+		if err = t.OnPeer(peer); err != nil {
+			return
+		}
 	}
 
 	// read loop
 	rpc := RPC{}
 	for {
-		if err := t.Decoder.Decode(conn, &rpc); err != nil {
-			log.Println("TCP error decoding message:", err)
-			continue
+		if err = t.Decoder.Decode(conn, &rpc); err != nil {
+			return
 		}
 
 		rpc.From = conn.RemoteAddr()
