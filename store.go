@@ -40,6 +40,14 @@ type PathKey struct {
 	Filename string
 }
 
+func (p PathKey) FirstPathName() string {
+	paths := strings.Split(p.PathName, "/")
+	if len(paths) > 0 {
+		return paths[0]
+	}
+	return ""
+}
+
 // PathTransformFunc is a function that transforms a key into a path.
 type PathTransformFunc func(string) PathKey
 
@@ -81,7 +89,7 @@ func (s *Store) Delete(key string) error {
 		log.Println("Deleted", pathKey.Filename, "from disc")
 	}()
 
-	return os.RemoveAll(pathKey.PathName)
+	return os.RemoveAll(pathKey.FirstPathName())
 }
 
 // Read reads the content of a file from the store

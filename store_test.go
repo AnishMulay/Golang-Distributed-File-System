@@ -59,4 +59,6 @@ func TestStore(t *testing.T) {
 	if !bytes.Equal(b, data) {
 		t.Errorf("Expected %s, got %s", data, b)
 	}
+
+	store.Delete(key)
 }
