@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -11,7 +12,7 @@ import (
 
 // Content Addressable Storage (CAS) is a method of storing data
 // such that the key is derived from the content itself.
-func CASTransformFunc(key string) string {
+func CASTransformFunc(key string) PathKey {
 	hash := sha1.Sum([]byte(key))
 	hashString := hex.EncodeToString(hash[:])
 
@@ -25,14 +26,27 @@ func CASTransformFunc(key string) string {
 		paths[i] = hashString[start:end]
 	}
 
-	return strings.Join(paths, "/")
+	// return strings.Join(paths, "/")
+	return PathKey{
+		PathName: strings.Join(paths, "/"),
+		Original: hashString,
+	}
+}
+
+type PathKey struct {
+	PathName string
+	Original string
 }
 
 // PathTransformFunc is a function that transforms a key into a path.
-type PathTransformFunc func(string) string
+type PathTransformFunc func(string) PathKey
 
 var DefaultPathTransformFunc = func(key string) string {
 	return key
+}
+
+func (p PathKey) Filename() string {
+	return fmt.Sprintf("%s/%s", p.PathName, p.Original)
 }
 
 type StoreConfig struct {
@@ -50,14 +64,12 @@ func NewStore(opts StoreConfig) *Store {
 }
 
 func (s *Store) writeStream(key string, r io.Reader) error {
-	pathName := s.PathTransform(key)
-
-	if err := os.MkdirAll(pathName, os.ModePerm); err != nil {
+	pathKey := s.PathTransform(key)
+	if err := os.MkdirAll(pathKey.PathName, os.ModePerm); err != nil {
 		return err
 	}
 
-	filename := "randomfilefornow"
-	pathAndFilename := pathName + "/" + filename
+	pathAndFilename := pathKey.Filename()
 
 	f, err := os.Create(pathAndFilename)
 	if err != nil {
