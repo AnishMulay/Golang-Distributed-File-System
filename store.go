@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"strings"
@@ -64,6 +65,16 @@ func NewStore(opts StoreConfig) *Store {
 	}
 }
 
+func (s *Store) Has(key string) bool {
+	pathKey := s.PathTransform(key)
+	_, err := os.Stat(pathKey.FullPath())
+	if err == fs.ErrNotExist {
+		return false
+	}
+	return true
+}
+
+// Delete deletes a file from the store
 func (s *Store) Delete(key string) error {
 	pathKey := s.PathTransform(key)
 	defer func() {
