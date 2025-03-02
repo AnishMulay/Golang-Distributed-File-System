@@ -64,6 +64,15 @@ func NewStore(opts StoreConfig) *Store {
 	}
 }
 
+func (s *Store) Delete(key string) error {
+	pathKey := s.PathTransform(key)
+	defer func() {
+		log.Println("Deleted", pathKey.Filename, "from disc")
+	}()
+
+	return os.RemoveAll(pathKey.PathName)
+}
+
 // Read reads the content of a file from the store
 func (s *Store) Read(key string) (io.Reader, error) {
 	f, err := s.readStream(key)
