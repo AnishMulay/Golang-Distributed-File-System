@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+const defaultRootFolderName = "store"
+
 // Content Addressable Storage (CAS) is a method of storing data
 // such that the key is derived from the content itself.
 func CASTransformFunc(key string) PathKey {
@@ -51,8 +53,11 @@ func (p PathKey) FirstPathName() string {
 // PathTransformFunc is a function that transforms a key into a path.
 type PathTransformFunc func(string) PathKey
 
-var DefaultPathTransformFunc = func(key string) string {
-	return key
+var DefaultPathTransformFunc = func(key string) PathKey {
+	return PathKey{
+		PathName: key,
+		Filename: key,
+	}
 }
 
 func (p PathKey) FullPath() string {
@@ -60,6 +65,8 @@ func (p PathKey) FullPath() string {
 }
 
 type StoreConfig struct {
+	// Root is the root folder where the store will be created
+	Root          string
 	PathTransform PathTransformFunc
 }
 
@@ -68,6 +75,12 @@ type Store struct {
 }
 
 func NewStore(opts StoreConfig) *Store {
+	if opts.PathTransform == nil {
+		opts.PathTransform = DefaultPathTransformFunc
+	}
+	if opts.Root == "" {
+		opts.Root = defaultRootFolderName
+	}
 	return &Store{
 		StoreConfig: opts,
 	}
@@ -89,7 +102,8 @@ func (s *Store) Delete(key string) error {
 		log.Println("Deleted", pathKey.Filename, "from disc")
 	}()
 
-	return os.RemoveAll(pathKey.FirstPathName())
+	firstPathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FirstPathName())
+	return os.RemoveAll(firstPathNameWithRoot)
 }
 
 // Read reads the content of a file from the store
@@ -109,18 +123,21 @@ func (s *Store) Read(key string) (io.Reader, error) {
 // readStream reads the content of a file from the store
 func (s *Store) readStream(key string) (io.ReadCloser, error) {
 	pathKey := s.PathTransform(key)
-	return os.Open(pathKey.FullPath())
+	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+	return os.Open(fullPathWithRoot)
 }
 
 func (s *Store) writeStream(key string, r io.Reader) error {
 	pathKey := s.PathTransform(key)
-	if err := os.MkdirAll(pathKey.PathName, os.ModePerm); err != nil {
+	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
+	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
 		return err
 	}
 
 	fullPath := pathKey.FullPath()
+	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, fullPath)
 
-	f, err := os.Create(fullPath)
+	f, err := os.Create(fullPathWithRoot)
 	if err != nil {
 		return err
 	}
@@ -130,7 +147,7 @@ func (s *Store) writeStream(key string, r io.Reader) error {
 		return err
 	}
 
-	log.Println("Wrote", n, "bytes to", fullPath)
+	log.Println("Wrote", n, "bytes to", fullPathWithRoot)
 
 	return nil
 }
