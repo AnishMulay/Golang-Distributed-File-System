@@ -1,7 +1,10 @@
 package peertopeer
 
+import "net"
+
 // Peer represents one peer in the network
 type Peer interface {
+	RemoteAddress() net.Addr
 	Close() error
 }
 

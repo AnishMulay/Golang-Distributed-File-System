@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"sync"
 
 	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
 )
@@ -15,8 +16,10 @@ type FileServerConfig struct {
 
 type FileServer struct {
 	FileServerConfig
-	store  *Store
-	quitch chan struct{}
+	peerLock sync.Mutex
+	peers    map[string]peertopeer.Peer
+	store    *Store
+	quitch   chan struct{}
 }
 
 func NewFileServer(config FileServerConfig) *FileServer {
@@ -28,11 +31,21 @@ func NewFileServer(config FileServerConfig) *FileServer {
 		FileServerConfig: config,
 		store:            NewStore(storeConfig),
 		quitch:           make(chan struct{}),
+		peers:            make(map[string]peertopeer.Peer),
 	}
 }
 
 func (s *FileServer) Stop() {
 	close(s.quitch)
+}
+
+func (s *FileServer) OnPeer(p peertopeer.Peer) error {
+	s.peerLock.Lock()
+	defer s.peerLock.Unlock()
+
+	s.peers[p.RemoteAddress().String()] = p
+	log.Println("Connected to peer", p.RemoteAddress())
+	return nil
 }
 
 func (s *FileServer) loop() {
