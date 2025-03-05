@@ -10,6 +10,7 @@ type FileServerConfig struct {
 	StorageRoot       string
 	PathTransformFunc PathTransformFunc
 	Transport         peertopeer.Transport
+	BootstrapPeers    []string
 }
 
 type FileServer struct {
@@ -37,6 +38,7 @@ func (s *FileServer) Stop() {
 func (s *FileServer) loop() {
 	defer func() {
 		log.Println("FileServer loop stopped because user requested to quit")
+		s.Transport.Close()
 	}()
 
 	for {
@@ -49,11 +51,24 @@ func (s *FileServer) loop() {
 	}
 }
 
+func (s *FileServer) bootstrapNetwork() error {
+	for _, addr := range s.BootstrapPeers {
+		go func(address string) {
+			if err := s.Transport.Dial(address); err != nil {
+				log.Println("Failed to dial", address, err)
+			}
+		}(addr)
+	}
+
+	return nil
+}
+
 func (s *FileServer) Start() error {
 	if err := s.Transport.ListenAndAccept(); err != nil {
 		return err
 	}
 
+	s.bootstrapNetwork()
 	s.loop()
 
 	return nil

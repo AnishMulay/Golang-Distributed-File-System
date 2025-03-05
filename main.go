@@ -20,12 +20,13 @@ func main() {
 		StorageRoot:       "3000_store",
 		PathTransformFunc: CASTransformFunc,
 		Transport:         tcpTransport,
+		BootstrapPeers:    []string{":3001"},
 	}
 
 	fileServer := NewFileServer(fileServerConfig)
 
 	go func() {
-		time.Sleep(5 * time.Second)
+		time.Sleep(3 * time.Second)
 		fileServer.Stop()
 	}()
 

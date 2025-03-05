@@ -1,6 +1,7 @@
 package peertopeer
 
 import (
+	"errors"
 	"log"
 	"net"
 	"sync"
@@ -62,6 +63,19 @@ func (t *TCPTransport) Close() error {
 	return t.listener.Close()
 }
 
+// Dial implements the Transport interface
+// It dials a remote peer at the given address
+func (t *TCPTransport) Dial(address string) error {
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		return err
+	}
+
+	go t.handleConn(conn, true)
+
+	return nil
+}
+
 func (t *TCPTransport) ListenAndAccept() error {
 	var err error
 
@@ -80,17 +94,20 @@ func (t *TCPTransport) ListenAndAccept() error {
 func (t *TCPTransport) startAcceptLoop() {
 	for {
 		conn, err := t.listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
 		if err != nil {
 			log.Println("Error accepting connection:", err)
 		}
 
 		log.Println("New incoming connection from", conn)
-		go t.handleConn(conn)
+		go t.handleConn(conn, false)
 	}
 }
 
-func (t *TCPTransport) handleConn(conn net.Conn) {
-	peer := NewTCPPeer(conn, true)
+func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
+	peer := NewTCPPeer(conn, outbound)
 	var err error
 	defer func() {
 		log.Println("Closing connection with", conn.RemoteAddr(), ":", err)

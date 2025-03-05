@@ -8,6 +8,7 @@ type Peer interface {
 // Transport handles communication between nodes(peers)
 // Can be TCP, UDP, Websockets, etc
 type Transport interface {
+	Dial(address string) error
 	ListenAndAccept() error
 	Consume() <-chan RPC
 	Close() error
