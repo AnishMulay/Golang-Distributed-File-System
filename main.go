@@ -2,35 +2,34 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
 )
 
-func OnPeer(p peertopeer.Peer) error {
-	p.Close()
-	return nil
-}
-
 func main() {
-	tcpconfig := peertopeer.TCPTransportConfig{
+	tcpTransportConfig := peertopeer.TCPTransportConfig{
 		ListenAddress: ":3000",
 		HandShakeFunc: peertopeer.NOPEHandShakeFunc,
 		Decoder:       peertopeer.DefaultDecoder{},
-		OnPeer:        OnPeer,
 	}
 
-	tr := peertopeer.NewTCPTransport(tcpconfig)
+	tcpTransport := peertopeer.NewTCPTransport(tcpTransportConfig)
+
+	fileServerConfig := FileServerConfig{
+		StorageRoot:       "3000_store",
+		PathTransformFunc: CASTransformFunc,
+		Transport:         tcpTransport,
+	}
+
+	fileServer := NewFileServer(fileServerConfig)
 
 	go func() {
-		for {
-			msg := <-tr.Consume()
-			log.Printf("Received message from %s: %s", msg.From, msg.Payload)
-		}
+		time.Sleep(5 * time.Second)
+		fileServer.Stop()
 	}()
 
-	if err := tr.ListenAndAccept(); err != nil {
+	if err := fileServer.Start(); err != nil {
 		log.Fatal(err)
 	}
-
-	select {}
 }

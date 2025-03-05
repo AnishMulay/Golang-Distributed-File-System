@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -88,11 +89,16 @@ func NewStore(opts StoreConfig) *Store {
 
 func (s *Store) Has(key string) bool {
 	pathKey := s.PathTransform(key)
-	_, err := os.Stat(pathKey.FullPath())
-	if err == fs.ErrNotExist {
+	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+	_, err := os.Stat(fullPathWithRoot)
+	if errors.Is(err, fs.ErrNotExist) {
 		return false
 	}
 	return true
+}
+
+func (s *Store) Clear() error {
+	return os.RemoveAll(s.Root)
 }
 
 // Delete deletes a file from the store
@@ -118,6 +124,11 @@ func (s *Store) Read(key string) (io.Reader, error) {
 	buf := new(bytes.Buffer)
 	_, err = io.Copy(buf, f)
 	return buf, err
+}
+
+// Write writes the content of a file to the store
+func (s *Store) Write(key string, r io.Reader) error {
+	return s.writeStream(key, r)
 }
 
 // readStream reads the content of a file from the store

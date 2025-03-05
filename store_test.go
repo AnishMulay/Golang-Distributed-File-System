@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"testing"
 )
@@ -19,46 +20,51 @@ func TestPathTransformFunc(t *testing.T) {
 	}
 }
 
-func TestStoreDeleteKey(t *testing.T) {
-	storeconfig := StoreConfig{
-		PathTransform: CASTransformFunc,
-	}
-	store := NewStore(storeconfig)
+func TestStore(t *testing.T) {
+	store := newStore()
+	defer tearDown(t, store)
 
-	key := "anish"
-	data := []byte("Hello Anish")
+	for i := 0; i < 50; i++ {
+		key := fmt.Sprintf("key%d", i)
+		data := []byte("Hello Anish")
 
-	if err := store.writeStream(key, bytes.NewReader(data)); err != nil {
-		t.Error(err)
-	}
+		if err := store.writeStream(key, bytes.NewReader(data)); err != nil {
+			t.Error(err)
+		}
 
-	if err := store.Delete(key); err != nil {
-		t.Error(err)
+		if ok := store.Has(key); !ok {
+			t.Errorf("Expected %s to exist", key)
+		}
+
+		r, err := store.Read(key)
+		if err != nil {
+			t.Error(err)
+		}
+
+		b, _ := io.ReadAll(r)
+		if !bytes.Equal(b, data) {
+			t.Errorf("Expected %s, got %s", data, b)
+		}
+
+		if err := store.Delete(key); err != nil {
+			t.Error(err)
+		}
+
+		if ok := store.Has(key); ok {
+			t.Errorf("Expected %s to be deleted", key)
+		}
 	}
 }
 
-func TestStore(t *testing.T) {
+func newStore() *Store {
 	storeconfig := StoreConfig{
 		PathTransform: CASTransformFunc,
 	}
-	store := NewStore(storeconfig)
+	return NewStore(storeconfig)
+}
 
-	key := "anish"
-	data := []byte("Hello Anish")
-
-	if err := store.writeStream(key, bytes.NewReader(data)); err != nil {
+func tearDown(t *testing.T, store *Store) {
+	if err := store.Clear(); err != nil {
 		t.Error(err)
 	}
-
-	r, err := store.Read(key)
-	if err != nil {
-		t.Error(err)
-	}
-
-	b, _ := io.ReadAll(r)
-	if !bytes.Equal(b, data) {
-		t.Errorf("Expected %s, got %s", data, b)
-	}
-
-	store.Delete(key)
 }
