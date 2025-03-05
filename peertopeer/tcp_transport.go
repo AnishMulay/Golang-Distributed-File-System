@@ -58,6 +58,10 @@ func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcch
 }
 
+func (t *TCPTransport) Close() error {
+	return t.listener.Close()
+}
+
 func (t *TCPTransport) ListenAndAccept() error {
 	var err error
 

@@ -35,6 +35,10 @@ func (s *FileServer) Stop() {
 }
 
 func (s *FileServer) loop() {
+	defer func() {
+		log.Println("FileServer loop stopped because user requested to quit")
+	}()
+
 	for {
 		select {
 		case msg := <-s.Transport.Consume():
