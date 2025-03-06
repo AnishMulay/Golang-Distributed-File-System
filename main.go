@@ -37,10 +37,12 @@ func main() {
 		log.Fatal(s1.Start())
 	}()
 
+	time.Sleep(1 * time.Second)
+
 	go s2.Start()
 	time.Sleep(1 * time.Second)
 
-	file := bytes.NewReader([]byte("Hello World"))
+	file := bytes.NewReader([]byte("Golang Distributed File System"))
 	s2.StoreFile("anishkey", file)
 
 	select {}

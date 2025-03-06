@@ -62,7 +62,7 @@ type TCPTransport struct {
 func NewTCPTransport(config TCPTransportConfig) *TCPTransport {
 	return &TCPTransport{
 		TCPTransportConfig: config,
-		rpcch:              make(chan RPC),
+		rpcch:              make(chan RPC, 1024),
 	}
 }
 
@@ -135,13 +135,12 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 	}
 
 	// read loop
-	rpc := RPC{}
 	for {
+		rpc := RPC{}
 		if err = t.Decoder.Decode(conn, &rpc); err != nil {
 			return
 		}
-
 		rpc.From = conn.RemoteAddr()
-		log.Println("Received message from", rpc.From, ":", rpc.Payload)
+		t.rpcch <- rpc
 	}
 }

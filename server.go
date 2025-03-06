@@ -44,34 +44,33 @@ type Payload struct {
 }
 
 func (s *FileServer) broadcast(payload *Payload) error {
-	peers := []io.Writer{}
 	for _, peer := range s.peers {
-		peers = append(peers, peer)
-	}
+		buf := new(bytes.Buffer)
+		if err := gob.NewEncoder(buf).Encode(payload); err != nil {
+			return err
+		}
 
-	mw := io.MultiWriter(peers...)
-	return gob.NewEncoder(mw).Encode(payload)
+		if err := peer.Send(buf.Bytes()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *FileServer) StoreFile(key string, r io.Reader) error {
-	if err := s.store.Write(key, r); err != nil {
-		return err
-	}
-
 	buf := new(bytes.Buffer)
-	_, err := io.Copy(buf, r)
-	if err != nil {
+	tee := io.TeeReader(r, buf)
+
+	if err := s.store.Write(key, tee); err != nil {
 		return err
 	}
 
-	payload := &Payload{
+	p := &Payload{
 		Key:  key,
 		Data: buf.Bytes(),
 	}
 
-	log.Println(buf.Bytes())
-
-	return s.broadcast(payload)
+	return s.broadcast(p)
 }
 
 func (s *FileServer) Stop() {
@@ -96,7 +95,12 @@ func (s *FileServer) loop() {
 	for {
 		select {
 		case msg := <-s.Transport.Consume():
-			log.Println("Received message", msg)
+			var p Payload
+			err := gob.NewDecoder(bytes.NewReader(msg.Payload)).Decode(&p)
+			if err != nil {
+				log.Fatal("Failed to decode payload", err)
+			}
+			log.Println("Received payload", p.Key, p.Data)
 		case <-s.quitch:
 			return
 		}
