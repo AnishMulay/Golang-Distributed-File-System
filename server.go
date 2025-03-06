@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
+	"fmt"
 	"io"
 	"log"
 	"sync"
@@ -57,10 +58,18 @@ type Message struct {
 	Payload any
 }
 
+type MessageStoreFile struct {
+	Key  string
+	Size int64
+}
+
 func (s *FileServer) StoreFile(key string, r io.Reader) error {
 	buf := new(bytes.Buffer)
 	msg := Message{
-		Payload: []byte("storagekey"),
+		Payload: MessageStoreFile{
+			Key:  key,
+			Size: 8,
+		},
 	}
 	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
 		return err
@@ -126,38 +135,41 @@ func (s *FileServer) loop() {
 			var msg Message
 			if err := gob.NewDecoder(bytes.NewReader(rpc.Payload)).Decode(&msg); err != nil {
 				log.Println("Error decoding message", err)
+				return
 			}
-
-			log.Println("Received message", string(msg.Payload.([]byte)))
-
-			peer, ok := s.peers[rpc.From]
-			if !ok {
-				panic("Peer not found in peer map")
+			if err := s.handleMessage(rpc.From, &msg); err != nil {
+				log.Println("Error handling message", err)
+				return
 			}
-
-			b := make([]byte, 1000)
-			if _, err := peer.Read(b); err != nil {
-				panic(err)
-			}
-
-			log.Println("Received data", string(b))
-			// if err := s.handleMessage(&m); err != nil {
-			// 	log.Println("Error handling message", err)
-			// }
 		case <-s.quitch:
 			return
 		}
 	}
 }
 
-// func (s *FileServer) handleMessage(msg *Message) error {
-// 	switch v := msg.Payload.(type) {
-// 	case *DataMessage:
-// 		log.Println("Received data message", v.Key, len(v.Data))
-// 	}
+func (s *FileServer) handleMessage(from string, msg *Message) error {
+	switch v := msg.Payload.(type) {
+	case MessageStoreFile:
+		return s.handleStoreFileMessage(from, v)
+	}
 
-// 	return nil
-// }
+	return nil
+}
+
+func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) error {
+	peer, ok := s.peers[from]
+	if !ok {
+		return fmt.Errorf("Peer not found in peer map")
+	}
+
+	if err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
+		return err
+	}
+
+	peer.(*peertopeer.TCPPeer).Wg.Done()
+
+	return nil
+}
 
 func (s *FileServer) bootstrapNetwork() error {
 	for _, addr := range s.BootstrapPeers {
@@ -184,4 +196,8 @@ func (s *FileServer) Start() error {
 	s.loop()
 
 	return nil
+}
+
+func init() {
+	gob.Register(MessageStoreFile{})
 }
