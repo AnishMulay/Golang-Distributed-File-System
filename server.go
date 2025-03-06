@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/gob"
 	"io"
 	"log"
@@ -42,7 +43,7 @@ type Payload struct {
 	Data []byte
 }
 
-func (s *FileServer) broadcast(payload Payload) error {
+func (s *FileServer) broadcast(payload *Payload) error {
 	peers := []io.Writer{}
 	for _, peer := range s.peers {
 		peers = append(peers, peer)
@@ -53,7 +54,24 @@ func (s *FileServer) broadcast(payload Payload) error {
 }
 
 func (s *FileServer) StoreFile(key string, r io.Reader) error {
-	return nil
+	if err := s.store.Write(key, r); err != nil {
+		return err
+	}
+
+	buf := new(bytes.Buffer)
+	_, err := io.Copy(buf, r)
+	if err != nil {
+		return err
+	}
+
+	payload := &Payload{
+		Key:  key,
+		Data: buf.Bytes(),
+	}
+
+	log.Println(buf.Bytes())
+
+	return s.broadcast(payload)
 }
 
 func (s *FileServer) Stop() {

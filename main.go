@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"log"
+	"time"
 
 	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
 )
@@ -35,5 +37,11 @@ func main() {
 		log.Fatal(s1.Start())
 	}()
 
-	s2.Start()
+	go s2.Start()
+	time.Sleep(1 * time.Second)
+
+	file := bytes.NewReader([]byte("Hello World"))
+	s2.StoreFile("anishkey", file)
+
+	select {}
 }
