@@ -65,49 +65,42 @@ type MessageStoreFile struct {
 
 func (s *FileServer) StoreFile(key string, r io.Reader) error {
 	buf := new(bytes.Buffer)
-	msg := Message{
-		Payload: MessageStoreFile{
-			Key:  key,
-			Size: 8,
-		},
-	}
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+	tee := io.TeeReader(r, buf)
+	size, err := s.store.Write(key, tee)
+	if err != nil {
 		return err
 	}
 
+	msg := Message{
+		Payload: MessageStoreFile{
+			Key:  key,
+			Size: size,
+		},
+	}
+
+	msgBuf := new(bytes.Buffer)
+	if err := gob.NewEncoder(msgBuf).Encode(msg); err != nil {
+		return err
+	}
+
+	// I have changed buf to msgBuf in the below for loop
 	for _, peer := range s.peers {
-		if err := peer.Send(buf.Bytes()); err != nil {
+		if err := peer.Send(msgBuf.Bytes()); err != nil {
 			return err
 		}
 	}
 
 	time.Sleep(3 * time.Second)
 
-	payload := []byte("BIG FILE")
 	for _, peer := range s.peers {
-		if err := peer.Send(payload); err != nil {
+		n, err := io.Copy(peer, buf)
+		if err != nil {
 			return err
 		}
+		log.Println("Sent", n, "bytes to", peer.RemoteAddr())
 	}
 
 	return nil
-
-	// buf := new(bytes.Buffer)
-	// tee := io.TeeReader(r, buf)
-
-	// if err := s.store.Write(key, tee); err != nil {
-	// 	return err
-	// }
-
-	// p := &DataMessage{
-	// 	Key:  key,
-	// 	Data: buf.Bytes(),
-	// }
-
-	// return s.broadcast(&Message{
-	// 	From:    "todo",
-	// 	Payload: p,
-	// })
 }
 
 func (s *FileServer) Stop() {
@@ -162,7 +155,7 @@ func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) e
 		return fmt.Errorf("Peer not found in peer map")
 	}
 
-	if err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
+	if _, err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
 		return err
 	}
 
