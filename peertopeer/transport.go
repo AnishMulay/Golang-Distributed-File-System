@@ -4,8 +4,8 @@ import "net"
 
 // Peer represents one peer in the network
 type Peer interface {
-	RemoteAddress() net.Addr
-	Close() error
+	net.Conn
+	Send([]byte) error
 }
 
 // Transport handles communication between nodes(peers)

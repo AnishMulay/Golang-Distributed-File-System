@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/gob"
+	"io"
 	"log"
 	"sync"
 
@@ -35,6 +37,25 @@ func NewFileServer(config FileServerConfig) *FileServer {
 	}
 }
 
+type Payload struct {
+	Key  string
+	Data []byte
+}
+
+func (s *FileServer) broadcast(payload Payload) error {
+	for _, peer := range s.peers {
+		if err := gob.NewEncoder(peer).Encode(payload); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *FileServer) StoreFile(key string, r io.Reader) error {
+	return nil
+}
+
 func (s *FileServer) Stop() {
 	close(s.quitch)
 }
@@ -43,8 +64,8 @@ func (s *FileServer) OnPeer(p peertopeer.Peer) error {
 	s.peerLock.Lock()
 	defer s.peerLock.Unlock()
 
-	s.peers[p.RemoteAddress().String()] = p
-	log.Println("Connected to peer", p.RemoteAddress())
+	s.peers[p.RemoteAddr().String()] = p
+	log.Println("Connected to peer", p.RemoteAddr())
 	return nil
 }
 
