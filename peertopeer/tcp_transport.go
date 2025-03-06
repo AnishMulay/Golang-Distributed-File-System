@@ -16,12 +16,15 @@ type TCPPeer struct {
 	// if true, then this peer initiated the connection
 	// if false, then this peer was dialed by another peer
 	outBound bool
+
+	Wg *sync.WaitGroup
 }
 
 func NewTCPPeer(conn net.Conn, outBound bool) *TCPPeer {
 	return &TCPPeer{
 		Conn:     conn,
 		outBound: outBound,
+		Wg:       &sync.WaitGroup{},
 	}
 }
 
@@ -140,7 +143,11 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 		if err = t.Decoder.Decode(conn, &rpc); err != nil {
 			return
 		}
-		rpc.From = conn.RemoteAddr()
+		rpc.From = conn.RemoteAddr().String()
+		peer.Wg.Add(1)
+		log.Println("Waiting until file streaming is done")
 		t.rpcch <- rpc
+		peer.Wg.Wait()
+		log.Println("File streaming is done")
 	}
 }
