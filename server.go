@@ -43,13 +43,13 @@ type Payload struct {
 }
 
 func (s *FileServer) broadcast(payload Payload) error {
+	peers := []io.Writer{}
 	for _, peer := range s.peers {
-		if err := gob.NewEncoder(peer).Encode(payload); err != nil {
-			return err
-		}
+		peers = append(peers, peer)
 	}
 
-	return nil
+	mw := io.MultiWriter(peers...)
+	return gob.NewEncoder(mw).Encode(payload)
 }
 
 func (s *FileServer) StoreFile(key string, r io.Reader) error {
