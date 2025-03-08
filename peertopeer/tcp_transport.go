@@ -69,6 +69,11 @@ func NewTCPTransport(config TCPTransportConfig) *TCPTransport {
 	}
 }
 
+// Addr returns the address on which the transport is listening
+func (t *TCPTransport) Addr() string {
+	return t.ListenAddress
+}
+
 // Consume returns a channel which can be used to receive messages from other peers
 func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcch
@@ -144,10 +149,15 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 			return
 		}
 		rpc.From = conn.RemoteAddr().String()
-		peer.Wg.Add(1)
-		log.Println("Waiting until file streaming is done")
+
+		if rpc.Stream {
+			peer.Wg.Add(1)
+			log.Println("Receiving stream from", rpc.From)
+			peer.Wg.Wait()
+			log.Println("Stream from", rpc.From, "ended. resuming read loop")
+			continue
+		}
+
 		t.rpcch <- rpc
-		peer.Wg.Wait()
-		log.Println("File streaming is done")
 	}
 }

@@ -62,6 +62,7 @@ func (s *FileServer) broadcast(msg *Message) error {
 
 	// I have changed buf to msgBuf in the below for loop
 	for _, peer := range s.peers {
+		peer.Send([]byte{peertopeer.IncomingMessage})
 		if err := peer.Send(buf.Bytes()); err != nil {
 			return err
 		}
@@ -99,6 +100,16 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 		return nil, err
 	}
 
+	for _, peer := range s.peers {
+		fileBuf := new(bytes.Buffer)
+		n, err := io.CopyN(fileBuf, peer, 10)
+		if err != nil {
+			return nil, err
+		}
+		log.Println("Received", n, "bytes from", peer.RemoteAddr())
+		log.Println("Received", fileBuf.String())
+	}
+
 	select {}
 
 	return nil, nil
@@ -125,9 +136,10 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 		log.Println("Error broadcasting message", err)
 	}
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(5 * time.Millisecond)
 
 	for _, peer := range s.peers {
+		peer.Send([]byte{peertopeer.IncomingStream})
 		n, err := io.Copy(peer, fileBuf)
 		if err != nil {
 			return err
@@ -153,7 +165,7 @@ func (s *FileServer) OnPeer(p peertopeer.Peer) error {
 
 func (s *FileServer) loop() {
 	defer func() {
-		log.Println("FileServer loop stopped because user requested to quit")
+		log.Println("FileServer loop stopped because or an error or quitch")
 		s.Transport.Close()
 	}()
 
@@ -163,11 +175,9 @@ func (s *FileServer) loop() {
 			var msg Message
 			if err := gob.NewDecoder(bytes.NewReader(rpc.Payload)).Decode(&msg); err != nil {
 				log.Println("Error decoding message", err)
-				return
 			}
 			if err := s.handleMessage(rpc.From, &msg); err != nil {
 				log.Println("Error handling message", err)
-				return
 			}
 		case <-s.quitch:
 			return
@@ -187,7 +197,27 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 }
 
 func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error {
-	log.Println("Received get file message for key", msg.Key)
+	if !s.store.Has(msg.Key) {
+		return fmt.Errorf("Key not found in local store")
+	}
+
+	r, err := s.store.Read(msg.Key)
+	if err != nil {
+		return err
+	}
+
+	peer, ok := s.peers[from]
+	if !ok {
+		return fmt.Errorf("Peer not found in peer map")
+	}
+
+	n, err := io.Copy(peer, r)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Sent", n, "bytes to", peer.RemoteAddr())
+
 	return nil
 }
 
@@ -202,7 +232,7 @@ func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) e
 		return err
 	}
 
-	log.Println("Wrote", n, "bytes to disc")
+	log.Printf("[%s] Stored %d bytes\n", s.Transport.Addr(), n)
 	peer.(*peertopeer.TCPPeer).Wg.Done()
 
 	return nil
