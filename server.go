@@ -78,7 +78,33 @@ type MessageStoreFile struct {
 	Size int64
 }
 
-func (s *FileServer) StoreFile(key string, r io.Reader) error {
+type MessageGetFile struct {
+	Key string
+}
+
+func (s *FileServer) Get(key string) (io.Reader, error) {
+	if s.store.Has(key) {
+		return s.store.Read(key)
+	}
+
+	log.Println("Key not found in local store, broadcasting request")
+
+	msg := Message{
+		Payload: MessageGetFile{
+			Key: key,
+		},
+	}
+
+	if err := s.broadcast(&msg); err != nil {
+		return nil, err
+	}
+
+	select {}
+
+	return nil, nil
+}
+
+func (s *FileServer) Store(key string, r io.Reader) error {
 	var (
 		fileBuf = new(bytes.Buffer)
 		tee     = io.TeeReader(r, fileBuf)
@@ -153,8 +179,15 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 	switch v := msg.Payload.(type) {
 	case MessageStoreFile:
 		return s.handleStoreFileMessage(from, v)
+	case MessageGetFile:
+		return s.handleGetFileMessage(from, v)
 	}
 
+	return nil
+}
+
+func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error {
+	log.Println("Received get file message for key", msg.Key)
 	return nil
 }
 
@@ -204,4 +237,5 @@ func (s *FileServer) Start() error {
 
 func init() {
 	gob.Register(MessageStoreFile{})
+	gob.Register(MessageGetFile{})
 }
