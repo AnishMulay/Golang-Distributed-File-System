@@ -40,13 +40,28 @@ func NewFileServer(config FileServerConfig) *FileServer {
 	}
 }
 
-func (s *FileServer) broadcast(msg *Message) error {
+func (s *FileServer) stream(msg *Message) error {
 	for _, peer := range s.peers {
 		buf := new(bytes.Buffer)
 		if err := gob.NewEncoder(buf).Encode(msg); err != nil {
 			return err
 		}
 
+		if err := peer.Send(buf.Bytes()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *FileServer) broadcast(msg *Message) error {
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		return err
+	}
+
+	// I have changed buf to msgBuf in the below for loop
+	for _, peer := range s.peers {
 		if err := peer.Send(buf.Bytes()); err != nil {
 			return err
 		}
@@ -80,16 +95,8 @@ func (s *FileServer) StoreFile(key string, r io.Reader) error {
 		},
 	}
 
-	msgBuf := new(bytes.Buffer)
-	if err := gob.NewEncoder(msgBuf).Encode(msg); err != nil {
-		return err
-	}
-
-	// I have changed buf to msgBuf in the below for loop
-	for _, peer := range s.peers {
-		if err := peer.Send(msgBuf.Bytes()); err != nil {
-			return err
-		}
+	if err := s.broadcast(&msg); err != nil {
+		log.Println("Error broadcasting message", err)
 	}
 
 	time.Sleep(3 * time.Second)
