@@ -17,15 +17,19 @@ type TCPPeer struct {
 	// if false, then this peer was dialed by another peer
 	outBound bool
 
-	Wg *sync.WaitGroup
+	wg *sync.WaitGroup
 }
 
 func NewTCPPeer(conn net.Conn, outBound bool) *TCPPeer {
 	return &TCPPeer{
 		Conn:     conn,
 		outBound: outBound,
-		Wg:       &sync.WaitGroup{},
+		wg:       &sync.WaitGroup{},
 	}
+}
+
+func (p *TCPPeer) CloseStream() {
+	p.wg.Done()
 }
 
 func (p *TCPPeer) Send(data []byte) error {
@@ -151,9 +155,9 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 		rpc.From = conn.RemoteAddr().String()
 
 		if rpc.Stream {
-			peer.Wg.Add(1)
+			peer.wg.Add(1)
 			log.Println("Receiving stream from", rpc.From)
-			peer.Wg.Wait()
+			peer.wg.Wait()
 			log.Println("Stream from", rpc.From, "ended. resuming read loop")
 			continue
 		}

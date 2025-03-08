@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"time"
 
@@ -56,7 +57,7 @@ func main() {
 
 	for i := 0; i < 10; i++ {
 		file := bytes.NewReader([]byte("Golang Distributed File System"))
-		s2.Store("anishkey", file)
+		s2.Store(fmt.Sprintf("file%d", i), file)
 		time.Sleep(5 * time.Millisecond)
 	}
 
