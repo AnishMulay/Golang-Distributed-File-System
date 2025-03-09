@@ -88,7 +88,8 @@ type MessageGetFile struct {
 func (s *FileServer) Get(key string) (io.Reader, error) {
 	if s.store.Has(key) {
 		log.Printf("[%s]: Key found in local store\n", s.Transport.Addr())
-		return s.store.Read(key)
+		_, r, err := s.store.Read(key)
+		return r, err
 	}
 
 	log.Printf("[%s]: Key not found in local store, broadcasting request\n", s.Transport.Addr())
@@ -117,7 +118,8 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 		peer.CloseStream()
 	}
 
-	return s.store.Read(key)
+	_, r, err := s.store.Read(key)
+	return r, err
 }
 
 func (s *FileServer) Store(key string, r io.Reader) error {
@@ -209,7 +211,7 @@ func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error
 
 	fmt.Printf("[%s]: serving file (%s) over the network\n", s.Transport.Addr(), msg.Key)
 
-	r, err := s.store.Read(msg.Key)
+	fileSize, r, err := s.store.Read(msg.Key)
 	if err != nil {
 		return err
 	}
@@ -220,7 +222,6 @@ func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error
 	}
 
 	peer.Send([]byte{peertopeer.IncomingStream})
-	var fileSize int64 = 21
 	binary.Write(peer, binary.LittleEndian, fileSize)
 	n, err := io.Copy(peer, r)
 	if err != nil {
