@@ -36,7 +36,7 @@ func TestStore(t *testing.T) {
 			t.Errorf("Expected %s to exist", key)
 		}
 
-		r, err := store.Read(key)
+		_, r, err := store.Read(key)
 		if err != nil {
 			t.Error(err)
 		}
