@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
@@ -114,16 +113,7 @@ func (s *Store) Delete(key string) error {
 
 // Read reads the content of a file from the store
 func (s *Store) Read(key string) (int64, io.Reader, error) {
-	n, f, err := s.readStream(key)
-	if err != nil {
-		return n, nil, err
-	}
-
-	defer f.Close()
-
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, f)
-	return n, buf, err
+	return s.readStream(key)
 }
 
 // Write writes the content of a file to the store
