@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"fmt"
+	"io"
 	"log"
 	"time"
 
@@ -43,23 +43,21 @@ func main() {
 	go s2.Start()
 	time.Sleep(1 * time.Second)
 
-	// r, err := s2.Get("anikey")
-	// if err != nil {
-	// 	log.Println(err)
-	// }
+	file := bytes.NewReader([]byte("Golang Distributed File System"))
+	s1.Store("anikey", file)
+	time.Sleep(5 * time.Millisecond)
 
-	// b, err := io.ReadAll(r)
-	// if err != nil {
-	// 	log.Println(err)
-	// }
-
-	// log.Println(string(b))
-
-	for i := 0; i < 10; i++ {
-		file := bytes.NewReader([]byte("Golang Distributed File System"))
-		s2.Store(fmt.Sprintf("file%d", i), file)
-		time.Sleep(5 * time.Millisecond)
+	r, err := s2.Get("anikey")
+	if err != nil {
+		log.Println(err)
 	}
+
+	b, err := io.ReadAll(r)
+	if err != nil {
+		log.Println(err)
+	}
+
+	log.Println(string(b))
 
 	select {}
 }

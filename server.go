@@ -88,7 +88,7 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 		return s.store.Read(key)
 	}
 
-	log.Println("Key not found in local store, broadcasting request")
+	log.Printf("[%s]: Key not found in local store, broadcasting request\n", s.Transport.Addr())
 
 	msg := Message{
 		Payload: MessageGetFile{
@@ -100,14 +100,17 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 		return nil, err
 	}
 
+	time.Sleep(500 * time.Millisecond)
+
 	for _, peer := range s.peers {
 		fileBuf := new(bytes.Buffer)
 		n, err := io.CopyN(fileBuf, peer, 10)
 		if err != nil {
 			return nil, err
 		}
-		log.Println("Received", n, "bytes from", peer.RemoteAddr())
-		log.Println("Received", fileBuf.String())
+		log.Printf("[%s]: Received %d bytes from %s\n", s.Transport.Addr(), n, peer.RemoteAddr())
+
+		peer.CloseStream()
 	}
 
 	select {}
@@ -198,8 +201,10 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 
 func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error {
 	if !s.store.Has(msg.Key) {
-		return fmt.Errorf("Key not found in local store")
+		return fmt.Errorf("[%s]: Key not found in local store", s.Transport.Addr())
 	}
+
+	fmt.Printf("[%s]: serving file (%s) over the network\n", s.Transport.Addr(), msg.Key)
 
 	r, err := s.store.Read(msg.Key)
 	if err != nil {
@@ -208,23 +213,24 @@ func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error
 
 	peer, ok := s.peers[from]
 	if !ok {
-		return fmt.Errorf("Peer not found in peer map")
+		return fmt.Errorf("peer %s found in peer map", from)
 	}
+
+	peer.Send([]byte{peertopeer.IncomingStream})
 
 	n, err := io.Copy(peer, r)
 	if err != nil {
 		return err
 	}
 
-	log.Println("Sent", n, "bytes to", peer.RemoteAddr())
-
+	log.Printf("[%s]: Sent %d bytes to %s\n", s.Transport.Addr(), n, peer.RemoteAddr())
 	return nil
 }
 
 func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) error {
 	peer, ok := s.peers[from]
 	if !ok {
-		return fmt.Errorf("Peer not found in peer map")
+		return fmt.Errorf("peer not found in peer map")
 	}
 
 	n, err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size))
