@@ -55,13 +55,14 @@ func (s *FileServer) stream(msg *Message) error {
 }
 
 func (s *FileServer) broadcast(msg *Message) error {
+	log.Printf("[%s]: Broadcasting message of type %T\n", s.Transport.Addr(), msg.Payload)
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
 		return err
 	}
 
-	// I have changed buf to msgBuf in the below for loop
 	for _, peer := range s.peers {
+		log.Printf("[%s]: Sending message to %s\n", s.Transport.Addr(), peer.RemoteAddr())
 		peer.Send([]byte{peertopeer.IncomingMessage})
 		if err := peer.Send(buf.Bytes()); err != nil {
 			return err
@@ -85,6 +86,7 @@ type MessageGetFile struct {
 
 func (s *FileServer) Get(key string) (io.Reader, error) {
 	if s.store.Has(key) {
+		log.Printf("[%s]: Key found in local store\n", s.Transport.Addr())
 		return s.store.Read(key)
 	}
 
@@ -103,22 +105,20 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 	time.Sleep(500 * time.Millisecond)
 
 	for _, peer := range s.peers {
-		fileBuf := new(bytes.Buffer)
-		n, err := io.CopyN(fileBuf, peer, 10)
+		n, err := s.store.Write(key, io.LimitReader(peer, 21))
 		if err != nil {
 			return nil, err
 		}
-		log.Printf("[%s]: Received %d bytes from %s\n", s.Transport.Addr(), n, peer.RemoteAddr())
 
+		log.Printf("[%s]: Received %d bytes from %s\n", s.Transport.Addr(), n, peer.RemoteAddr())
 		peer.CloseStream()
 	}
 
-	select {}
-
-	return nil, nil
+	return s.store.Read(key)
 }
 
 func (s *FileServer) Store(key string, r io.Reader) error {
+	log.Printf("[%s]: Storing file (%s) in local store\n", s.Transport.Addr(), key)
 	var (
 		fileBuf = new(bytes.Buffer)
 		tee     = io.TeeReader(r, fileBuf)

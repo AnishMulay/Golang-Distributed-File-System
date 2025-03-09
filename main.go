@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"io"
 	"log"
 	"time"
@@ -31,7 +30,7 @@ func makeServer(listenAddress string, nodes ...string) *FileServer {
 }
 
 func main() {
-	s1 := makeServer(":3000", "")
+	s1 := makeServer(":3000")
 	s2 := makeServer(":4000", ":3000")
 
 	go func() {
@@ -43,11 +42,11 @@ func main() {
 	go s2.Start()
 	time.Sleep(1 * time.Second)
 
-	file := bytes.NewReader([]byte("Golang Distributed File System"))
-	s1.Store("anikey", file)
-	time.Sleep(5 * time.Millisecond)
+	// file := bytes.NewReader([]byte("Main file content 222"))
+	// s1.Store("anishkey", file)
+	// time.Sleep(500 * time.Millisecond)
 
-	r, err := s2.Get("anikey")
+	r, err := s2.Get("anishkey")
 	if err != nil {
 		log.Println(err)
 	}
@@ -58,6 +57,4 @@ func main() {
 	}
 
 	log.Println(string(b))
-
-	select {}
 }
