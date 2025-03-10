@@ -1,7 +1,7 @@
 package main
 
 import (
-	"io"
+	"bytes"
 	"log"
 	"time"
 
@@ -18,6 +18,7 @@ func makeServer(listenAddress string, nodes ...string) *FileServer {
 	tcpTransport := peertopeer.NewTCPTransport(tcpTransposrtConfig)
 
 	fileServerConfig := FileServerConfig{
+		EncryptionKey:     newEncryptionKey(),
 		StorageRoot:       listenAddress + "_store",
 		PathTransformFunc: CASTransformFunc,
 		Transport:         tcpTransport,
@@ -42,19 +43,19 @@ func main() {
 	go s2.Start()
 	time.Sleep(1 * time.Second)
 
-	// file := bytes.NewReader([]byte("Main file content 222"))
-	// s1.Store("anishkey", file)
+	file := bytes.NewReader([]byte("Main file content 222"))
+	s2.Store("anishkey", file)
 	// time.Sleep(500 * time.Millisecond)
 
-	r, err := s2.Get("anishkey")
-	if err != nil {
-		log.Println(err)
-	}
+	// r, err := s2.Get("anishkey")
+	// if err != nil {
+	// 	log.Println(err)
+	// }
 
-	b, err := io.ReadAll(r)
-	if err != nil {
-		log.Println(err)
-	}
+	// b, err := io.ReadAll(r)
+	// if err != nil {
+	// 	log.Println(err)
+	// }
 
-	log.Println(string(b))
+	// log.Println(string(b))
 }

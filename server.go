@@ -14,6 +14,7 @@ import (
 )
 
 type FileServerConfig struct {
+	EncryptionKey     []byte
 	StorageRoot       string
 	PathTransformFunc PathTransformFunc
 	Transport         peertopeer.Transport
@@ -136,7 +137,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	msg := Message{
 		Payload: MessageStoreFile{
 			Key:  key,
-			Size: size,
+			Size: size + 16,
 		},
 	}
 
@@ -148,7 +149,11 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 
 	for _, peer := range s.peers {
 		peer.Send([]byte{peertopeer.IncomingStream})
-		n, err := io.Copy(peer, fileBuf)
+		// n, err := io.Copy(peer, fileBuf)
+		// if err != nil {
+		// 	return err
+		// }
+		n, err := copyEncrypt(s.EncryptionKey, fileBuf, peer)
 		if err != nil {
 			return err
 		}
