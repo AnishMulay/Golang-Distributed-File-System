@@ -121,35 +121,8 @@ func (s *Store) Write(key string, r io.Reader) (int64, error) {
 	return s.writeStream(key, r)
 }
 
-// readStream reads the content of a file from the store
-func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
-	pathKey := s.PathTransform(key)
-	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
-
-	file, err := os.Open(fullPathWithRoot)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	fi, err := file.Stat()
-	if err != nil {
-		return 0, nil, err
-	}
-
-	return fi.Size(), file, nil
-}
-
 func (s *Store) WriteDecryptStream(encKey []byte, key string, r io.Reader) (int64, error) {
-	pathKey := s.PathTransform(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
-	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
-		return 0, err
-	}
-
-	fullPath := pathKey.FullPath()
-	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, fullPath)
-
-	f, err := os.Create(fullPathWithRoot)
+	f, err := s.openFileForWriting(key)
 	if err != nil {
 		return 0, err
 	}
@@ -169,6 +142,24 @@ func (s *Store) openFileForWriting(key string) (*os.File, error) {
 	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, fullPath)
 
 	return os.Create(fullPathWithRoot)
+}
+
+// readStream reads the content of a file from the store
+func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
+	pathKey := s.PathTransform(key)
+	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+
+	file, err := os.Open(fullPathWithRoot)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	fi, err := file.Stat()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return fi.Size(), file, nil
 }
 
 func (s *Store) writeStream(key string, r io.Reader) (int64, error) {
