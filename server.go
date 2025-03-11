@@ -250,7 +250,7 @@ func (s *FileServer) bootstrapNetwork() error {
 			continue
 		}
 		go func(address string) {
-			log.Println("Dialing", address)
+			log.Printf("[%s]: Dialing %s\n", s.Transport.Addr(), address)
 			if err := s.Transport.Dial(address); err != nil {
 				log.Println("Failed to dial", address, err)
 			}
