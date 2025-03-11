@@ -42,20 +42,6 @@ func NewFileServer(config FileServerConfig) *FileServer {
 	}
 }
 
-func (s *FileServer) stream(msg *Message) error {
-	for _, peer := range s.peers {
-		buf := new(bytes.Buffer)
-		if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-			return err
-		}
-
-		if err := peer.Send(buf.Bytes()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *FileServer) broadcast(msg *Message) error {
 	log.Printf("[%s]: Broadcasting message of type %T\n", s.Transport.Addr(), msg.Payload)
 	buf := new(bytes.Buffer)
@@ -159,15 +145,6 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	}
 
 	log.Printf("[%s]: Sent %d bytes to %d peers\n", s.Transport.Addr(), n, len(s.peers))
-
-	// for _, peer := range s.peers {
-	// 	peer.Send([]byte{peertopeer.IncomingStream})
-	// 	n, err := copyEncrypt(s.EncryptionKey, fileBuf, peer)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	log.Println("Sent", n, "bytes to", peer.RemoteAddr())
-	// }
 
 	return nil
 }

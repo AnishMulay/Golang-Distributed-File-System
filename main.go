@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"time"
@@ -34,34 +35,39 @@ func makeServer(listenAddress string, nodes ...string) *FileServer {
 func main() {
 	s1 := makeServer(":3000")
 	s2 := makeServer(":4000", ":3000")
+	s3 := makeServer(":5000", ":3000", ":4000")
 
 	go func() {
 		log.Fatal(s1.Start())
+		time.Sleep(1 * time.Second)
+		log.Fatal(s2.Start())
 	}()
 
 	time.Sleep(1 * time.Second)
 
-	go s2.Start()
+	go s3.Start()
 	time.Sleep(1 * time.Second)
 
-	key := "anishkey"
-	file := bytes.NewReader([]byte("Main file content 222"))
-	s2.Store(key, file)
-	time.Sleep(500 * time.Millisecond)
+	for i := 0; i < 20; i++ {
+		key := fmt.Sprintf("anishkey%d", i)
+		file := bytes.NewReader([]byte(fmt.Sprintf("Main file content %d", i)))
+		s3.Store(key, file)
+		time.Sleep(500 * time.Millisecond)
 
-	if err := s2.store.Delete(key); err != nil {
-		log.Println(err)
+		if err := s3.store.Delete(key); err != nil {
+			log.Println(err)
+		}
+
+		r, err := s3.Get(key)
+		if err != nil {
+			log.Println(err)
+		}
+
+		b, err := io.ReadAll(r)
+		if err != nil {
+			log.Println(err)
+		}
+
+		log.Println(string(b))
 	}
-
-	r, err := s2.Get(key)
-	if err != nil {
-		log.Println(err)
-	}
-
-	b, err := io.ReadAll(r)
-	if err != nil {
-		log.Println(err)
-	}
-
-	log.Println(string(b))
 }
