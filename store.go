@@ -139,7 +139,7 @@ func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
 	return fi.Size(), file, nil
 }
 
-func (s *Store) writeDecryptStream(encKey []byte, key string, r io.Reader) (int64, error) {
+func (s *Store) WriteDecryptStream(encKey []byte, key string, r io.Reader) (int64, error) {
 	pathKey := s.PathTransform(key)
 	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
 	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {

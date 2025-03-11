@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"log"
 	"time"
 
@@ -43,19 +44,24 @@ func main() {
 	go s2.Start()
 	time.Sleep(1 * time.Second)
 
+	key := "anishkey"
 	file := bytes.NewReader([]byte("Main file content 222"))
-	s2.Store("anishkey", file)
-	// time.Sleep(500 * time.Millisecond)
+	s2.Store(key, file)
+	time.Sleep(500 * time.Millisecond)
 
-	// r, err := s2.Get("anishkey")
-	// if err != nil {
-	// 	log.Println(err)
-	// }
+	if err := s2.store.Delete(key); err != nil {
+		log.Println(err)
+	}
 
-	// b, err := io.ReadAll(r)
-	// if err != nil {
-	// 	log.Println(err)
-	// }
+	r, err := s2.Get(key)
+	if err != nil {
+		log.Println(err)
+	}
 
-	// log.Println(string(b))
+	b, err := io.ReadAll(r)
+	if err != nil {
+		log.Println(err)
+	}
+
+	log.Println(string(b))
 }
