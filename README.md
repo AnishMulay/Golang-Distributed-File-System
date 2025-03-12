@@ -7,6 +7,7 @@
 ![GitHub contributors](https://img.shields.io/github/contributors/AnishMulay/Golang-Distributed-File-System)
 ![GitHub repo size](https://img.shields.io/github/repo-size/AnishMulay/Golang-Distributed-File-System)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/SE-Spring2025-G2/Recipe-Recommender/blob/main/LICENSE)
+[![Tests](https://github.com/AnishMulay/Golang-Distributed-File-System/actions/workflows/main.yml/badge.svg)](https://github.com/AnishMulay/Golang-Distributed-File-System/actions/workflows/main.yml)
 
 ## About
 
