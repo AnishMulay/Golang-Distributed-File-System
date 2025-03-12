@@ -66,7 +66,9 @@ func (p PathKey) FullPath() string {
 
 type StoreConfig struct {
 	// Root is the root folder where the store will be created
-	Root          string
+	Root string
+	// ID is the unique identifier of the store
+	Id            string
 	PathTransform PathTransformFunc
 }
 
@@ -81,6 +83,9 @@ func NewStore(opts StoreConfig) *Store {
 	if opts.Root == "" {
 		opts.Root = defaultRootFolderName
 	}
+	if len(opts.Id) == 0 {
+		opts.Id = generateId()
+	}
 	return &Store{
 		StoreConfig: opts,
 	}
@@ -88,7 +93,7 @@ func NewStore(opts StoreConfig) *Store {
 
 func (s *Store) Has(key string) bool {
 	pathKey := s.PathTransform(key)
-	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+	fullPathWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, s.Id, pathKey.FullPath())
 	_, err := os.Stat(fullPathWithRoot)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false
@@ -107,7 +112,7 @@ func (s *Store) Delete(key string) error {
 		log.Println("Deleted", pathKey.Filename, "from disc")
 	}()
 
-	firstPathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FirstPathName())
+	firstPathNameWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, s.Id, pathKey.FirstPathName())
 	return os.RemoveAll(firstPathNameWithRoot)
 }
 
@@ -133,13 +138,13 @@ func (s *Store) WriteDecryptStream(encKey []byte, key string, r io.Reader) (int6
 
 func (s *Store) openFileForWriting(key string) (*os.File, error) {
 	pathKey := s.PathTransform(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
+	pathNameWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, s.Id, pathKey.PathName)
 	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
 		return nil, err
 	}
 
 	fullPath := pathKey.FullPath()
-	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, fullPath)
+	fullPathWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, s.Id, fullPath)
 
 	return os.Create(fullPathWithRoot)
 }
@@ -147,7 +152,7 @@ func (s *Store) openFileForWriting(key string) (*os.File, error) {
 // readStream reads the content of a file from the store
 func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
 	pathKey := s.PathTransform(key)
-	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+	fullPathWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, s.Id, pathKey.FullPath())
 
 	file, err := os.Open(fullPathWithRoot)
 	if err != nil {
