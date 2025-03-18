@@ -1,0 +1,32 @@
+syntax = "proto3";
+package peertopeer;
+option go_package = "./peertopeer";
+
+message Rpc {
+  string from = 1;
+  oneof payload {
+    MessageStoreFile store_file = 2;
+    MessageGetFile get_file = 3;
+    FileChunk file_chunk = 4;
+  }
+  bool stream = 5;
+}
+
+message MessageStoreFile {
+  string key = 1;
+  int64 size = 2;
+}
+
+message MessageGetFile {
+  string key = 1;
+}
+
+message FileChunk {
+  bytes content = 1;
+  int64 offset = 2;
+}
+
+enum MessageType {
+  INCOMING_MESSAGE = 0;
+  INCOMING_STREAM = 1;
+}

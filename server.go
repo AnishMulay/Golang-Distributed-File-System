@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
+	"google.golang.org/protobuf/proto"
 )
 
 type FileServerConfig struct {
@@ -42,25 +43,36 @@ func NewFileServer(config FileServerConfig) *FileServer {
 	}
 }
 
-func (s *FileServer) broadcast(msg *Message) error {
-	log.Printf("[%s]: Broadcasting message of type %T\n", s.Transport.Addr(), msg.Payload)
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+func (s *FileServer) broadcast(msg *peertopeer.Rpc) error {
+	log.Println("Broadcasting message")
+
+	buf, err := proto.Marshal(msg)
+	if err != nil {
 		return err
 	}
 
 	for _, peer := range s.peers {
-		log.Printf("[%s]: Sending message to %s\n", s.Transport.Addr(), peer.RemoteAddr())
-		peer.Send([]byte{peertopeer.IncomingMessage})
-		if err := peer.Send(buf.Bytes()); err != nil {
+		msgType := []byte{peertopeer.IncomingMessage}
+		if msg.GetStream() {
+			msgType = []byte{peertopeer.IncomingStream}
+		}
+
+		if err := peer.Send(msgType); err != nil {
+			return err
+		}
+
+		if err := peer.Send(buf); err != nil {
 			return err
 		}
 	}
+
+	log.Println("Broadcasted message to", len(s.peers), "peers")
+
 	return nil
 }
 
 type Message struct {
-	Payload any
+	*peertopeer.Rpc
 }
 
 type MessageStoreFile struct {
@@ -81,13 +93,15 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 
 	log.Printf("[%s]: Key not found in local store, broadcasting request\n", s.Transport.Addr())
 
-	msg := Message{
-		Payload: MessageGetFile{
-			Key: hashKey(key),
+	msg := &peertopeer.Rpc{
+		Payload: &peertopeer.Rpc_GetFile{
+			GetFile: &peertopeer.MessageGetFile{
+				Key: hashKey(key),
+			},
 		},
 	}
 
-	if err := s.broadcast(&msg); err != nil {
+	if err := s.broadcast(msg); err != nil {
 		return nil, err
 	}
 
@@ -120,14 +134,16 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 		return err
 	}
 
-	msg := Message{
-		Payload: MessageStoreFile{
-			Key:  hashKey(key),
-			Size: size + 16,
+	msg := &peertopeer.Rpc{
+		Payload: &peertopeer.Rpc_StoreFile{
+			StoreFile: &peertopeer.MessageStoreFile{
+				Key:  hashKey(key),
+				Size: size + 16,
+			},
 		},
 	}
 
-	if err := s.broadcast(&msg); err != nil {
+	if err := s.broadcast(msg); err != nil {
 		log.Println("Error broadcasting message", err)
 	}
 
@@ -171,12 +187,8 @@ func (s *FileServer) loop() {
 	for {
 		select {
 		case rpc := <-s.Transport.Consume():
-			var msg Message
-			if err := gob.NewDecoder(bytes.NewReader(rpc.Payload)).Decode(&msg); err != nil {
-				log.Println("Error decoding message", err)
-			}
-			if err := s.handleMessage(rpc.From, &msg); err != nil {
-				log.Println("Error handling message", err)
+			if err := s.handleRPC(&rpc); err != nil {
+				log.Println("Error handling RPC:", err)
 			}
 		case <-s.quitch:
 			return
@@ -184,53 +196,95 @@ func (s *FileServer) loop() {
 	}
 }
 
-func (s *FileServer) handleMessage(from string, msg *Message) error {
-	switch v := msg.Payload.(type) {
-	case MessageStoreFile:
-		return s.handleStoreFileMessage(from, v)
-	case MessageGetFile:
-		return s.handleGetFileMessage(from, v)
+func (s *FileServer) handleRPC(rpc *peertopeer.Rpc) error {
+	switch payload := rpc.Payload.(type) {
+	case *peertopeer.Rpc_StoreFile:
+		return s.handleStoreFile(rpc.From, payload.StoreFile)
+	case *peertopeer.Rpc_GetFile:
+		return s.handleGetFile(rpc.From, payload.GetFile)
+	default:
+		return fmt.Errorf("unknown RPC type: %T", payload)
+	}
+}
+
+func (s *FileServer) handleGetFile(from string, msg *peertopeer.MessageGetFile) error {
+	key := msg.GetKey()
+
+	if !s.store.Has(key) {
+		return fmt.Errorf("[%s] file with key '%s' not found", s.Transport.Addr(), key)
 	}
 
+	log.Printf("[%s] serving file (key: %s) to %s\n", s.Transport.Addr(), key, from)
+
+	// Get the file from local store
+	fileSize, r, err := s.store.Read(key)
+	if err != nil {
+		return fmt.Errorf("error reading file: %w", err)
+	}
+	defer func() {
+		if closer, ok := r.(io.Closer); ok {
+			closer.Close()
+		}
+	}()
+
+	// Get the peer connection
+	peer, ok := s.peers[from]
+	if !ok {
+		return fmt.Errorf("peer %s not found in peer map", from)
+	}
+
+	// Send stream initialization header
+	if err := peer.Send([]byte{peertopeer.IncomingStream}); err != nil {
+		return fmt.Errorf("error sending stream header: %w", err)
+	}
+
+	// Send file size using binary encoding (preserve existing protocol)
+	if err := binary.Write(peer, binary.LittleEndian, fileSize); err != nil {
+		return fmt.Errorf("error sending file size: %w", err)
+	}
+
+	// Create protobuf message for each chunk (adjust chunk size as needed)
+	const chunkSize = 4096
+	buf := make([]byte, chunkSize)
+
+	for {
+		n, err := r.Read(buf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("error reading file chunk: %w", err)
+		}
+
+		// Create and send chunk message
+		chunkMsg := &peertopeer.Rpc{
+			From: s.Transport.Addr(),
+			Payload: &peertopeer.Rpc_FileChunk{
+				FileChunk: &peertopeer.FileChunk{
+					Content: buf[:n],
+				},
+			},
+			Stream: true,
+		}
+
+		data, err := proto.Marshal(chunkMsg)
+		if err != nil {
+			return fmt.Errorf("error marshaling chunk: %w", err)
+		}
+
+		if err := peer.Send(data); err != nil {
+			return fmt.Errorf("error sending chunk: %w", err)
+		}
+	}
+
+	log.Printf("[%s] successfully sent %d bytes to %s", s.Transport.Addr(), fileSize, from)
 	return nil
 }
 
-func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error {
-	if !s.store.Has(msg.Key) {
-		return fmt.Errorf("[%s]: Key not found in local store", s.Transport.Addr())
-	}
-
-	fmt.Printf("[%s]: serving file (%s) over the network\n", s.Transport.Addr(), msg.Key)
-
-	fileSize, r, err := s.store.Read(msg.Key)
-	if err != nil {
-		return err
-	}
-
-	if rc, ok := r.(io.ReadCloser); ok {
-		defer rc.Close()
-	}
-
+func (s *FileServer) handleStoreFile(from string, msg *peertopeer.MessageStoreFile) error {
 	peer, ok := s.peers[from]
 	if !ok {
-		return fmt.Errorf("peer %s found in peer map", from)
-	}
-
-	peer.Send([]byte{peertopeer.IncomingStream})
-	binary.Write(peer, binary.LittleEndian, fileSize)
-	n, err := io.Copy(peer, r)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("[%s]: Sent %d bytes to %s\n", s.Transport.Addr(), n, peer.RemoteAddr())
-	return nil
-}
-
-func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) error {
-	peer, ok := s.peers[from]
-	if !ok {
-		return fmt.Errorf("peer not found in peer map")
+		return fmt.Errorf("peer %s not found", from)
 	}
 
 	n, err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size))
@@ -240,7 +294,6 @@ func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) e
 
 	log.Printf("[%s] Stored %d bytes\n", s.Transport.Addr(), n)
 	peer.CloseStream()
-
 	return nil
 }
 

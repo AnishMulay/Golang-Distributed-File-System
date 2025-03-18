@@ -60,7 +60,7 @@ type TCPTransportConfig struct {
 type TCPTransport struct {
 	TCPTransportConfig
 	listener net.Listener
-	rpcch    chan RPC
+	rpcch    chan Rpc
 
 	mutex sync.RWMutex
 	peers map[net.Addr]Peer
@@ -69,7 +69,7 @@ type TCPTransport struct {
 func NewTCPTransport(config TCPTransportConfig) *TCPTransport {
 	return &TCPTransport{
 		TCPTransportConfig: config,
-		rpcch:              make(chan RPC, 1024),
+		rpcch:              make(chan Rpc, 1024),
 	}
 }
 
@@ -79,7 +79,7 @@ func (t *TCPTransport) Addr() string {
 }
 
 // Consume returns a channel which can be used to receive messages from other peers
-func (t *TCPTransport) Consume() <-chan RPC {
+func (t *TCPTransport) Consume() <-chan Rpc {
 	return t.rpcch
 }
 
@@ -148,7 +148,7 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 
 	// read loop
 	for {
-		rpc := RPC{}
+		rpc := Rpc{}
 		if err = t.Decoder.Decode(conn, &rpc); err != nil {
 			return
 		}

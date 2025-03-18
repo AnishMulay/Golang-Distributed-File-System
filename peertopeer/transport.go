@@ -15,6 +15,6 @@ type Transport interface {
 	Addr() string
 	Dial(address string) error
 	ListenAndAccept() error
-	Consume() <-chan RPC
+	Consume() <-chan Rpc
 	Close() error
 }

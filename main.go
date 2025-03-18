@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"log"
 	"time"
 
@@ -14,7 +14,7 @@ func makeServer(listenAddress string, nodes ...string) *FileServer {
 	tcpTransposrtConfig := peertopeer.TCPTransportConfig{
 		ListenAddress: listenAddress,
 		HandShakeFunc: peertopeer.NOPEHandShakeFunc,
-		Decoder:       peertopeer.DefaultDecoder{},
+		Decoder:       peertopeer.ProtobufDecoder{},
 	}
 
 	tcpTransport := peertopeer.NewTCPTransport(tcpTransposrtConfig)
@@ -34,44 +34,36 @@ func makeServer(listenAddress string, nodes ...string) *FileServer {
 
 func main() {
 	s1 := makeServer(":3000")
-	s2 := makeServer(":4000", ":3000")
-	s3 := makeServer(":5000", ":3000", ":4000")
+	s2 := makeServer(":7000", ":3000")
+	s3 := makeServer(":5000", ":3000", ":7000")
 
-	go func() {
-		log.Fatal(s1.Start())
-		time.Sleep(1 * time.Second)
-	}()
-
-	go func() {
-		log.Fatal(s2.Start())
-		time.Sleep(1 * time.Second)
-	}()
-
-	time.Sleep(1 * time.Second)
+	go func() { log.Fatal(s1.Start()) }()
+	time.Sleep(500 * time.Millisecond)
+	go func() { log.Fatal(s2.Start()) }()
+	time.Sleep(500 * time.Millisecond)
 
 	go s3.Start()
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
-	for i := 0; i < 20; i++ {
-		key := fmt.Sprintf("anishkey%d", i)
-		file := bytes.NewReader([]byte(fmt.Sprintf("Main file content %d", i)))
-		s3.Store(key, file)
-		time.Sleep(500 * time.Millisecond)
+	for i := 0; i < 10; i++ {
+		key := fmt.Sprintf("picture_%d.png", i)
+		data := bytes.NewReader([]byte("my big data file here!"))
+		s3.Store(key, data)
 
 		if err := s3.store.Delete(key); err != nil {
-			log.Println(err)
+			log.Fatal(err)
 		}
 
 		r, err := s3.Get(key)
 		if err != nil {
-			log.Println(err)
+			log.Fatal(err)
 		}
 
-		b, err := io.ReadAll(r)
+		b, err := ioutil.ReadAll(r)
 		if err != nil {
-			log.Println(err)
+			log.Fatal(err)
 		}
 
-		log.Println(string(b))
+		fmt.Println(string(b))
 	}
 }

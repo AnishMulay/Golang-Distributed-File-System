@@ -7,8 +7,8 @@ const (
 
 // Message represents any data which is sent from
 // one peer to another over the network
-type RPC struct {
-	From    string
-	Payload []byte
-	Stream  bool
-}
+// type RPC struct {
+// 	From    string
+// 	Payload []byte
+// 	Stream  bool
+// }
