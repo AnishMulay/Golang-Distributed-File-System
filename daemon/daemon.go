@@ -1,7 +1,13 @@
 package main
 
-import "log"
+import (
+	"github.com/fsnotify/fsnotify"
+)
 
 func main() {
-	log.Println("Daemon started")
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		panic(err)
+	}
+	defer watcher.Close()
 }
