@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -21,8 +23,8 @@ func main() {
 					return
 				}
 				log.Println("event:", event)
-				if event.Has(fsnotify.Write) {
-					log.Println("modified file:", event.Name)
+				if event.Has(fsnotify.Create) {
+					log.Println("created file:", event.Name)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -33,7 +35,17 @@ func main() {
 		}
 	}()
 
-	err = watcher.Add("/tmp")
+	// Get the current working directory
+	currentDir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create the path to the temp directory
+	tempDirPath := filepath.Join(currentDir, "temp")
+	log.Println("listenig for changes in:", tempDirPath)
+
+	err = watcher.Add(tempDirPath)
 	if err != nil {
 		log.Fatal(err)
 	}
