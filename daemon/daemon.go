@@ -24,7 +24,7 @@ func main() {
 				}
 				log.Println("event:", event)
 				if event.Has(fsnotify.Create) {
-					log.Println("created file:", event.Name)
+					handleFileCreated(event.Name)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
