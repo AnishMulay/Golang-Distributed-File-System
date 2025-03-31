@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -9,6 +10,15 @@ import (
 )
 
 func main() {
+	// Establish a TCP connection to the server on localhost:3000
+	conn, err := net.Dial("tcp", "localhost:3000")
+	if err != nil {
+		log.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+	log.Println("Connected to server on localhost:3000")
+
+	// Set up the file watcher
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		panic(err)
@@ -24,7 +34,7 @@ func main() {
 				}
 				log.Println("event:", event)
 				if event.Has(fsnotify.Create) {
-					handleFileCreated(event.Name)
+					handleFileCreated(conn, event.Name)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -43,7 +53,7 @@ func main() {
 
 	// Create the path to the temp directory
 	tempDirPath := filepath.Join(currentDir, "temp")
-	log.Println("listenig for changes in:", tempDirPath)
+	log.Println("Listening for changes in:", tempDirPath)
 
 	err = watcher.Add(tempDirPath)
 	if err != nil {
