@@ -394,9 +394,17 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 		return s.handleGetFileMessage(from, v)
 	case MessageDeleteFile:
 		return s.handleDeleteFileMessage(from, v)
+	case MessageOpenFile:
+		return s.handleOpenFileMessage(from, v)
 	}
 
 	return nil
+}
+
+func (s *FileServer) handleOpenFileMessage(from string, msg MessageOpenFile) error {
+	log.Printf("[%s] Received OpenFile request for %s with flags %d", s.Transport.Addr(), msg.Path, msg.Flags)
+	_, err := s.OpenFile(msg.Path, msg.Flags, os.FileMode(msg.Mode))
+	return err
 }
 
 func (s *FileServer) handleDeleteFileMessage(from string, msg MessageDeleteFile) error {
