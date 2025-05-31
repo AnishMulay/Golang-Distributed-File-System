@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -87,6 +89,52 @@ type MessageGetFile struct {
 
 type MessageDeleteFile struct {
 	Path string
+}
+
+func (s *FileServer) OpenFile(path string, flags int, mode os.FileMode) (*OpenFile, error) {
+	path = filepath.Clean(path)
+
+	// Check if file exists
+	exists := s.pathStore.Exists(path)
+
+	// Handle O_CREATE|O_EXCL flags - atomic file creation
+	if flags&O_CREATE != 0 && flags&O_EXCL != 0 {
+		if exists {
+			log.Printf("File %s exists, can't create with O_EXCL", path)
+			return nil, os.ErrExist
+		}
+
+		// Create the file atomically
+		log.Printf("Creating file %s with O_EXCL", path)
+		if err := s.StoreFile(path, strings.NewReader(""), mode); err != nil {
+			return nil, err
+		}
+	} else if flags&O_CREATE != 0 {
+		// Create file if it doesn't exist
+		if !exists {
+			log.Printf("Creating file %s (didn't exist)", path)
+			if err := s.StoreFile(path, strings.NewReader(""), mode); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		// Open existing file
+		if !exists {
+			log.Printf("File %s not found", path)
+			return nil, os.ErrNotExist
+		}
+	}
+
+	// Handle O_TRUNC flag
+	if exists && flags&O_TRUNC != 0 {
+		log.Printf("Truncating file %s", path)
+		if err := s.StoreFile(path, strings.NewReader(""), mode); err != nil {
+			return nil, err
+		}
+	}
+
+	log.Printf("Opened file %s with flags %d and mode %d", path, flags, mode)
+	return NewOpenFile(s, path, flags, mode), nil
 }
 
 func (s *FileServer) FileExists(path string) bool {
