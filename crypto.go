@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"io"
 )
@@ -21,9 +22,12 @@ func hashKey(key string) string {
 }
 
 func newEncryptionKey() []byte {
-	keyBuf := make([]byte, 32)
-	io.ReadFull(rand.Reader, keyBuf)
-	return keyBuf
+	// Use the same string as in the client
+	keyString := "my-secure-secret-key-string"
+
+	// Hash it to get a 32-byte key
+	hash := sha256.Sum256([]byte(keyString))
+	return hash[:]
 }
 
 func copyStream(stream cipher.Stream, blockSize int, src io.Reader, dst io.Writer) (int, error) {
