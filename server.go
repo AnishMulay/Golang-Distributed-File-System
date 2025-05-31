@@ -137,6 +137,10 @@ func (s *FileServer) OpenFile(path string, flags int, mode os.FileMode) (*OpenFi
 	return NewOpenFile(s, path, flags, mode), nil
 }
 
+func (s *FileServer) Create(path string) (*OpenFile, error) {
+	return s.OpenFile(path, O_RDWR|O_CREATE|O_TRUNC, 0666)
+}
+
 func (s *FileServer) FileExists(path string) bool {
 	return s.pathStore.Exists(path)
 }
