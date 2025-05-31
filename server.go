@@ -398,9 +398,38 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 		return s.handleOpenFileMessage(from, v)
 	case MessageReadFile:
 		return s.handleReadFileMessage(from, v)
+	case MessageWriteFile:
+		return s.handleWriteFileMessage(from, v)
+	case MessageCloseFile:
+		return s.handleCloseFileMessage(from, v)
 	}
 
 	return nil
+}
+
+func (s *FileServer) handleCloseFileMessage(from string, msg MessageCloseFile) error {
+	log.Printf("[%s] Received CloseFile request for %s", s.Transport.Addr(), msg.Path)
+	return nil // No-op for now, as we don't track open files per-peer
+}
+
+func (s *FileServer) handleWriteFileMessage(from string, msg MessageWriteFile) error {
+	log.Printf("[%s] Received WriteFile request for %s at offset %d with %d bytes",
+		s.Transport.Addr(), msg.Path, msg.Offset, len(msg.Data))
+
+	file, err := s.OpenFile(msg.Path, O_WRONLY|O_CREATE, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Seek to the offset
+	if _, err := file.Seek(msg.Offset, io.SeekStart); err != nil {
+		return err
+	}
+
+	// Write data
+	_, err = file.Write(msg.Data)
+	return err
 }
 
 func (s *FileServer) handleReadFileMessage(from string, msg MessageReadFile) error {
