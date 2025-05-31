@@ -396,7 +396,43 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 		return s.handleDeleteFileMessage(from, v)
 	case MessageOpenFile:
 		return s.handleOpenFileMessage(from, v)
+	case MessageReadFile:
+		return s.handleReadFileMessage(from, v)
 	}
+
+	return nil
+}
+
+func (s *FileServer) handleReadFileMessage(from string, msg MessageReadFile) error {
+	log.Printf("[%s] Received ReadFile request for %s at offset %d", s.Transport.Addr(), msg.Path, msg.Offset)
+
+	file, err := s.Open(msg.Path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Seek to the offset
+	if _, err := file.Seek(msg.Offset, io.SeekStart); err != nil {
+		return err
+	}
+
+	// Read data
+	data := make([]byte, msg.Length)
+	n, err := file.Read(data)
+	if err != nil && err != io.EOF {
+		return err
+	}
+
+	// Send data back to the peer
+	peer, ok := s.peers[from]
+	if !ok {
+		return fmt.Errorf("peer not found in peer map")
+	}
+
+	peer.Send([]byte{peertopeer.IncomingStream})
+	peer.Send(data[:n])
+	peer.CloseStream()
 
 	return nil
 }
