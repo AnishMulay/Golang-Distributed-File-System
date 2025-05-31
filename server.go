@@ -91,6 +91,28 @@ type MessageDeleteFile struct {
 	Path string
 }
 
+type MessageOpenFile struct {
+	Path  string
+	Flags int
+	Mode  uint32
+}
+
+type MessageReadFile struct {
+	Path   string
+	Offset int64
+	Length int
+}
+
+type MessageWriteFile struct {
+	Path   string
+	Offset int64
+	Data   []byte
+}
+
+type MessageCloseFile struct {
+	Path string
+}
+
 func (s *FileServer) OpenFile(path string, flags int, mode os.FileMode) (*OpenFile, error) {
 	path = filepath.Clean(path)
 
@@ -139,6 +161,10 @@ func (s *FileServer) OpenFile(path string, flags int, mode os.FileMode) (*OpenFi
 
 func (s *FileServer) Create(path string) (*OpenFile, error) {
 	return s.OpenFile(path, O_RDWR|O_CREATE|O_TRUNC, 0666)
+}
+
+func (s *FileServer) Open(path string) (*OpenFile, error) {
+	return s.OpenFile(path, O_RDONLY, 0)
 }
 
 func (s *FileServer) FileExists(path string) bool {
@@ -472,4 +498,8 @@ func init() {
 	gob.Register(MessageStoreFile{})
 	gob.Register(MessageGetFile{})
 	gob.Register(MessageDeleteFile{})
+	gob.Register(MessageOpenFile{})
+	gob.Register(MessageReadFile{})
+	gob.Register(MessageWriteFile{})
+	gob.Register(MessageCloseFile{})
 }
