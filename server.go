@@ -23,10 +23,11 @@ type FileServerConfig struct {
 
 type FileServer struct {
 	FileServerConfig
-	peerLock sync.Mutex
-	peers    map[string]peertopeer.Peer
-	store    *Store
-	quitch   chan struct{}
+	peerLock  sync.Mutex
+	peers     map[string]peertopeer.Peer
+	store     *Store
+	pathStore *PathStore // Add PathStore
+	quitch    chan struct{}
 }
 
 func NewFileServer(config FileServerConfig) *FileServer {
