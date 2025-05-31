@@ -4,6 +4,9 @@ build:
 run: build
 	@./bin/fs
 
+clean:
+	@rm -rf bin/
+
 test:
 	@go test -v ./... -tags=unit
 

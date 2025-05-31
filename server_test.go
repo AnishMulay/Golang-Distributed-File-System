@@ -21,11 +21,11 @@ func TestFileServerIntegration(t *testing.T) {
 
 	// Create test servers
 	s1 := newTestServer(t, ":3000", tempRoot)
-	s2 := newTestServer(t, ":4000", tempRoot)
+	s2 := newTestServer(t, ":4000", tempRoot, ":3000")
 
 	// Wait for servers to start
-	waitForServerReady(s1.Transport.Addr())
-	waitForServerReady(s2.Transport.Addr())
+	waitForPeerConnection(s1, 1)
+	waitForPeerConnection(s2, 1)
 
 	// Test StoreFile
 	testContent := []byte("test content")
@@ -51,7 +51,7 @@ func TestFileServerIntegration(t *testing.T) {
 	}
 }
 
-func newTestServer(t *testing.T, addr string, root string) *FileServer {
+func newTestServer(t *testing.T, addr string, root string, bootstrapPeers ...string) *FileServer {
 	transport := peertopeer.NewTCPTransport(peertopeer.TCPTransportConfig{
 		ListenAddress: addr,
 		HandShakeFunc: peertopeer.NOPEHandShakeFunc,
@@ -63,18 +63,29 @@ func newTestServer(t *testing.T, addr string, root string) *FileServer {
 		StorageRoot:       filepath.Join(root, addr+"_store"),
 		PathTransformFunc: CASTransformFunc,
 		Transport:         transport,
+		BootstrapPeers:    bootstrapPeers, // Add bootstrap peers
 	}
 
 	server := NewFileServer(config)
 	server.pathStore, _ = NewPathStore(filepath.Join(root, addr+"_meta"))
 
-	go func() {
-		if err := server.Start(); err != nil {
-			t.Logf("Server %s stopped: %v", addr, err)
-		}
-	}()
-
+	transport.OnPeer = server.OnPeer
 	return server
+}
+
+func waitForPeerConnection(s *FileServer, count int) {
+	timeout := 10 * time.Second
+	start := time.Now()
+	for {
+		s.peerLock.Lock()
+		current := len(s.peers)
+		s.peerLock.Unlock()
+
+		if current >= count || time.Since(start) > timeout {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func waitForServerReady(addr string) {
