@@ -4,5 +4,11 @@ build:
 run: build
 	@./bin/fs
 
+clean:
+	@rm -rf bin/
+
 test:
-	@go test -v ./...
+	@go test -v ./... -tags=unit
+
+integration-test:
+	@go test -v ./... -tags=integration
