@@ -174,15 +174,11 @@ func (s *FileServer) FileExists(path string) bool {
 // GetFile gets a file by path
 func (s *FileServer) GetFile(path string) (io.Reader, error) {
 	path = filepath.Clean(path)
-	log.Printf("DEBUG GetFile: Using path: %q\n", path)
 
 	meta, err := s.pathStore.Get(path)
 	if err != nil {
-		log.Printf("DEBUG GetFile: Error getting metadata for path %q: %v\n", path, err)
 		return nil, err
 	}
-
-	log.Printf("DEBUG GetFile: Found metadata for path %q: ContentKey=%s, Size=%d, Mode=%o, Type=%s\n", path, meta.ContentKey, meta.Size, meta.Mode, meta.Type)
 
 	// Update access time
 	meta.AccessTime = time.Now()
@@ -195,7 +191,6 @@ func (s *FileServer) GetFile(path string) (io.Reader, error) {
 // StoreFile stores a file at the given path
 func (s *FileServer) StoreFile(path string, r io.Reader, mode os.FileMode) error {
 	path = filepath.Clean(path)
-	log.Printf("DEBUG StoreFile: Using path: %q\n", path)
 
 	// Create a buffer to read the entire file
 	buf := new(bytes.Buffer)
@@ -203,10 +198,10 @@ func (s *FileServer) StoreFile(path string, r io.Reader, mode os.FileMode) error
 
 	// Generate a content key based on the path
 	// In a real implementation, this would be a hash of the content
-	contentKey := hashKey(path)
-	log.Printf("DEBUG StoreFile: Generated content key: %s for path: %s\n", contentKey, path)
+	contentKey := path
 
 	// Store in the content-addressable store
+	log.Printf("[%s]: Storing file (%s) in local store\n", s.Transport.Addr(), contentKey)
 	size, err := s.store.Write(contentKey, tee)
 	if err != nil {
 		return err
@@ -327,6 +322,8 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 		fileBuf = new(bytes.Buffer)
 		tee     = io.TeeReader(r, fileBuf)
 	)
+
+	log.Printf("[%s]: Storing file (%s) in local store\n", s.Transport.Addr(), key)
 	size, err := s.store.Write(key, tee)
 	if err != nil {
 		return err
@@ -334,7 +331,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 
 	msg := Message{
 		Payload: MessageStoreFile{
-			Key:  hashKey(key),
+			Key:  key,
 			Size: size + 16,
 		},
 	}
@@ -534,6 +531,7 @@ func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) e
 	}
 
 	// Store the file content
+	log.Printf("[%s]: Storing file (%s) in local store\n", s.Transport.Addr(), msg.Key)
 	n, err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size))
 	if err != nil {
 		return err

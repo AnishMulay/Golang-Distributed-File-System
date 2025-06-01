@@ -124,8 +124,6 @@ func (ps *PathStore) Get(path string) (*FileMetadata, error) {
 	defer ps.mutex.RUnlock()
 
 	path = filepath.Clean(path)
-	log.Printf("DEBUG PathStore.Get: Looking for path: %q", path)
-	log.Printf("DEBUG PathStore.Get: Available paths in map: %v", ps.pathToMeta)
 
 	meta, ok := ps.pathToMeta[path]
 	if !ok {
@@ -141,7 +139,6 @@ func (ps *PathStore) Set(path string, contentKey string, size int64, mode os.Fil
 	defer ps.mutex.Unlock()
 
 	path = filepath.Clean(path)
-	log.Printf("DEBUG PathStore.Set: Setting metadata for path: %q", path)
 
 	now := time.Now()
 	meta, exists := ps.pathToMeta[path]

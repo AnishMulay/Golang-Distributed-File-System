@@ -37,6 +37,13 @@ func CASTransformFunc(key string) PathKey {
 	}
 }
 
+func NoTransformFunc(key string) PathKey {
+	return PathKey{
+		PathName: "",
+		Filename: key,
+	}
+}
+
 type PathKey struct {
 	PathName string
 	Filename string
