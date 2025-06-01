@@ -21,18 +21,21 @@ const (
 	FileTypeSymlink
 )
 
-// FileMetadata holds metadata about a file
+// metadata.go
 type FileMetadata struct {
-	Path       string      `json:"path"`       // File path
-	ContentKey string      `json:"contentKey"` // Content-addressable key
-	Size       int64       `json:"size"`       // File size
-	Mode       os.FileMode `json:"mode"`       // File mode
-	ModTime    time.Time   `json:"modTime"`    // Last modification time
-	CreateTime time.Time   `json:"createTime"` // Creation time
-	AccessTime time.Time   `json:"accessTime"` // Last access time
-	Type       FileType    `json:"type"`       // File type
-	Owner      string      `json:"owner"`      // Owner of the file
-	Group      string      `json:"group"`      // Group of the file
+	Path       string      `json:"path"`
+	ContentKey string      `json:"contentKey"` // Empty for directories
+	Size       int64       `json:"size"`       // 0 for directories
+	Mode       os.FileMode `json:"mode"`
+	ModTime    time.Time   `json:"modTime"`
+	CreateTime time.Time   `json:"createTime"`
+	AccessTime time.Time   `json:"accessTime"`
+	Type       FileType    `json:"type"`
+	Owner      string      `json:"owner"`
+	Group      string      `json:"group"`
+	IsDir      bool        `json:"isDir"`    // Explicitly mark directories
+	IsHidden   bool        `json:"isHidden"` // For hidden/system dirs
+	Children   []string    `json:"children"` // For directory listing
 }
 
 // PathStore manages file path to content key mapping and metadata
