@@ -205,20 +205,24 @@ func (ps *PathStore) Exists(path string) bool {
 }
 
 // ListDir lists entries in a directory
-func (ps *PathStore) ListDir(dirPath string) ([]string, error) {
+// metadata.go
+func (ps *PathStore) ListDir(dirPath string, filter func(*FileMetadata) bool) ([]FileMetadata, error) {
 	ps.mutex.RLock()
 	defer ps.mutex.RUnlock()
 
-	entries := []string{}
 	dirPath = filepath.Clean(dirPath)
-
-	for path, _ := range ps.pathToMeta {
-		parent := filepath.Dir(path)
-		if parent == dirPath {
-			entries = append(entries, filepath.Base(path))
-		}
+	if meta, ok := ps.pathToMeta[dirPath]; !ok || !meta.IsDir {
+		return nil, os.ErrNotExist
 	}
 
+	var entries []FileMetadata
+	for path, meta := range ps.pathToMeta {
+		if filepath.Dir(path) == dirPath {
+			if filter == nil || filter(meta) {
+				entries = append(entries, *meta)
+			}
+		}
+	}
 	return entries, nil
 }
 
