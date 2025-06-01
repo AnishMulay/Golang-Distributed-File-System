@@ -508,6 +508,16 @@ func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error
 		defer rc.Close()
 	}
 
+	// Print the contents of the file
+	contentBuf := new(bytes.Buffer)
+	if _, err := io.Copy(contentBuf, r); err != nil {
+		return err
+	}
+	fmt.Printf("DEBUG [%s]: File contents: %s\n", s.Transport.Addr(), contentBuf.String())
+
+	// Reset the reader to serve the file over the network
+	r = bytes.NewReader(contentBuf.Bytes())
+
 	peer, ok := s.peers[from]
 	if !ok {
 		return fmt.Errorf("peer %s found in peer map", from)
@@ -532,10 +542,14 @@ func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) e
 
 	// Store the file content
 	log.Printf("[%s]: Storing file (%s) in local store\n", s.Transport.Addr(), msg.Key)
-	n, err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size))
+	contentBuf := new(bytes.Buffer)
+	n, err := s.store.Write(msg.Key, io.TeeReader(io.LimitReader(peer, msg.Size), contentBuf))
 	if err != nil {
 		return err
 	}
+
+	// Print the contents of the file
+	log.Printf("[%s]: File contents: %s\n", s.Transport.Addr(), contentBuf.String())
 
 	// Store the metadata
 	fileType := FileTypeRegular

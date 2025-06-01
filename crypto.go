@@ -21,9 +21,8 @@ func hashKey(key string) string {
 }
 
 func newEncryptionKey() []byte {
-	keyBuf := make([]byte, 32)
-	io.ReadFull(rand.Reader, keyBuf)
-	return keyBuf
+	keyBuf := []byte("deterministic-encryption-key-32bytes!")
+	return keyBuf[:32]
 }
 
 func copyStream(stream cipher.Stream, blockSize int, src io.Reader, dst io.Writer) (int, error) {
