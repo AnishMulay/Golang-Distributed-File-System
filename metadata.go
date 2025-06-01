@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -219,4 +220,61 @@ func (ps *PathStore) ListDir(dirPath string) ([]string, error) {
 	}
 
 	return entries, nil
+}
+
+// metadata.go
+func (ps *PathStore) CreateDir(path string, mode os.FileMode, isHidden bool) error {
+	ps.mutex.Lock()
+	defer ps.mutex.Unlock()
+
+	path = filepath.Clean(path)
+	if ps.pathToMeta[path] != nil {
+		return os.ErrExist
+	}
+
+	// Ensure parent exists
+	parent := filepath.Dir(path)
+	if parent != "." && parent != "/" && !ps.pathToMeta[parent].IsDir {
+		return os.ErrNotExist
+	}
+
+	// Create metadata for the directory
+	now := time.Now()
+	meta := &FileMetadata{
+		Path:       path,
+		Mode:       mode | os.ModeDir,
+		ModTime:    now,
+		CreateTime: now,
+		AccessTime: now,
+		IsDir:      true,
+		IsHidden:   isHidden,
+		Owner:      "default", // TODO: from user context
+		Group:      "default", // TODO: from user context
+	}
+	ps.pathToMeta[path] = meta
+
+	// Update parent's children list
+	if parent != "." && parent != "/" {
+		ps.pathToMeta[parent].Children = append(ps.pathToMeta[parent].Children, filepath.Base(path))
+	}
+
+	return ps.saveMetadata(path)
+}
+
+func (ps *PathStore) CreateDirRecursive(path string, mode os.FileMode, isHidden bool) error {
+	path = filepath.Clean(path)
+	parts := strings.Split(path, "/")
+	current := ""
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		if !ps.Exists(current) {
+			if err := ps.CreateDir(current, mode, isHidden); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
