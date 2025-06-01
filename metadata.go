@@ -123,6 +123,8 @@ func (ps *PathStore) Get(path string) (*FileMetadata, error) {
 	ps.mutex.RLock()
 	defer ps.mutex.RUnlock()
 
+	path = filepath.Clean(path)
+
 	meta, ok := ps.pathToMeta[path]
 	if !ok {
 		return nil, os.ErrNotExist
@@ -135,6 +137,8 @@ func (ps *PathStore) Get(path string) (*FileMetadata, error) {
 func (ps *PathStore) Set(path string, contentKey string, size int64, mode os.FileMode, fileType FileType) error {
 	ps.mutex.Lock()
 	defer ps.mutex.Unlock()
+
+	path = filepath.Clean(path)
 
 	now := time.Now()
 	meta, exists := ps.pathToMeta[path]

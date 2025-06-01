@@ -6,6 +6,7 @@ run: build
 
 clean:
 	@rm -rf bin/
+	@find . -type d -name ':*' -exec rm -rf {} +
 
 test:
 	@go test -v ./... -tags=unit

@@ -173,6 +173,8 @@ func (s *FileServer) FileExists(path string) bool {
 
 // GetFile gets a file by path
 func (s *FileServer) GetFile(path string) (io.Reader, error) {
+	path = filepath.Clean(path)
+
 	meta, err := s.pathStore.Get(path)
 	if err != nil {
 		return nil, err
@@ -188,15 +190,18 @@ func (s *FileServer) GetFile(path string) (io.Reader, error) {
 
 // StoreFile stores a file at the given path
 func (s *FileServer) StoreFile(path string, r io.Reader, mode os.FileMode) error {
+	path = filepath.Clean(path)
+
 	// Create a buffer to read the entire file
 	buf := new(bytes.Buffer)
 	tee := io.TeeReader(r, buf)
 
 	// Generate a content key based on the path
 	// In a real implementation, this would be a hash of the content
-	contentKey := hashKey(path)
+	contentKey := path
 
 	// Store in the content-addressable store
+	log.Printf("[%s]: Storing file (%s) in local store\n", s.Transport.Addr(), contentKey)
 	size, err := s.store.Write(contentKey, tee)
 	if err != nil {
 		return err
@@ -285,7 +290,7 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 
 	msg := Message{
 		Payload: MessageGetFile{
-			Key: hashKey(key),
+			Key: key,
 		},
 	}
 
@@ -317,6 +322,8 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 		fileBuf = new(bytes.Buffer)
 		tee     = io.TeeReader(r, fileBuf)
 	)
+
+	log.Printf("[%s]: Storing file (%s) in local store\n", s.Transport.Addr(), key)
 	size, err := s.store.Write(key, tee)
 	if err != nil {
 		return err
@@ -324,7 +331,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 
 	msg := Message{
 		Payload: MessageStoreFile{
-			Key:  hashKey(key),
+			Key:  key,
 			Size: size + 16,
 		},
 	}
@@ -490,7 +497,7 @@ func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error
 		return fmt.Errorf("[%s]: Key not found in local store", s.Transport.Addr())
 	}
 
-	fmt.Printf("[%s]: serving file (%s) over the network\n", s.Transport.Addr(), msg.Key)
+	fmt.Printf("DEBUG [%s]: serving file (%s) over the network\n", s.Transport.Addr(), msg.Key)
 
 	fileSize, r, err := s.store.Read(msg.Key)
 	if err != nil {
@@ -500,6 +507,16 @@ func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error
 	if rc, ok := r.(io.ReadCloser); ok {
 		defer rc.Close()
 	}
+
+	// Print the contents of the file
+	contentBuf := new(bytes.Buffer)
+	if _, err := io.Copy(contentBuf, r); err != nil {
+		return err
+	}
+	fmt.Printf("DEBUG [%s]: File contents: %s\n", s.Transport.Addr(), contentBuf.String())
+
+	// Reset the reader to serve the file over the network
+	r = bytes.NewReader(contentBuf.Bytes())
 
 	peer, ok := s.peers[from]
 	if !ok {
@@ -524,10 +541,15 @@ func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) e
 	}
 
 	// Store the file content
-	n, err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size))
+	log.Printf("[%s]: Storing file (%s) in local store\n", s.Transport.Addr(), msg.Key)
+	contentBuf := new(bytes.Buffer)
+	n, err := s.store.Write(msg.Key, io.TeeReader(io.LimitReader(peer, msg.Size), contentBuf))
 	if err != nil {
 		return err
 	}
+
+	// Print the contents of the file
+	log.Printf("[%s]: File contents: %s\n", s.Transport.Addr(), contentBuf.String())
 
 	// Store the metadata
 	fileType := FileTypeRegular
