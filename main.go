@@ -82,6 +82,13 @@ func main() {
 			os.Exit(1)
 		}
 		runLs(os.Args[2])
+	case "mkdir":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: dfs mkdir <remote-path> [--recursive]")
+			os.Exit(1)
+		}
+		recursive := len(os.Args) >= 4 && os.Args[3] == "--recursive"
+		runMkdir(os.Args[2], recursive)
 	case "touch":
 		if len(os.Args) != 3 {
 			fmt.Println("Usage: dfs touch <remote-path>")
@@ -199,16 +206,32 @@ func runExists(remotePath string) {
 	}
 }
 
+func runMkdir(remotePath string, recursive bool) {
+	server := connectToServer()
+	var err error
+	if recursive {
+		err = server.pathStore.CreateDirRecursive(remotePath, 0755, false)
+	} else {
+		err = server.pathStore.CreateDir(remotePath, 0755, false)
+	}
+	if err != nil {
+		log.Fatalf("Failed to create directory: %v", err)
+	}
+	fmt.Printf("Created directory %s\n", remotePath)
+}
+
 func runLs(remotePath string) {
 	server := connectToServer()
-
-	entries, err := server.pathStore.ListDir(remotePath)
+	entries, err := server.pathStore.ListDir(remotePath, nil)
 	if err != nil {
 		log.Fatalf("Failed to list directory: %v", err)
 	}
-
 	for _, entry := range entries {
-		fmt.Println(entry)
+		mode := "f"
+		if entry.IsDir {
+			mode = "d"
+		}
+		fmt.Printf("%s %s\n", mode, entry.Path)
 	}
 }
 

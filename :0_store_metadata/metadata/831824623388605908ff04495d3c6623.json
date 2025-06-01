@@ -1,0 +1,15 @@
+{
+  "path": "testdir/nested",
+  "contentKey": "",
+  "size": 0,
+  "mode": 2147484141,
+  "modTime": "2025-06-01T13:22:44.686269592-04:00",
+  "createTime": "2025-06-01T13:22:44.686269592-04:00",
+  "accessTime": "2025-06-01T13:22:44.686269592-04:00",
+  "type": 0,
+  "owner": "default",
+  "group": "default",
+  "isDir": true,
+  "isHidden": false,
+  "children": null
+}
