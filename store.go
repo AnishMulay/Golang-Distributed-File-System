@@ -99,6 +99,9 @@ func NewStore(opts StoreConfig) *Store {
 }
 
 func (s *Store) Has(key string) bool {
+
+	log.Printf("Checking if key %s exists in store %s/%s", key, s.Root, s.Id)
+
 	pathKey := s.PathTransform(key)
 
 	fullPathWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, s.Id, pathKey.FullPath())

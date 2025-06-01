@@ -497,7 +497,7 @@ func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error
 		return fmt.Errorf("[%s]: Key not found in local store", s.Transport.Addr())
 	}
 
-	fmt.Printf("[%s]: serving file (%s) over the network\n", s.Transport.Addr(), msg.Key)
+	fmt.Printf("DEBUG [%s]: serving file (%s) over the network\n", s.Transport.Addr(), msg.Key)
 
 	fileSize, r, err := s.store.Read(msg.Key)
 	if err != nil {
