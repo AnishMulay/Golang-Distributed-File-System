@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,18 +22,21 @@ const (
 	FileTypeSymlink
 )
 
-// FileMetadata holds metadata about a file
+// metadata.go
 type FileMetadata struct {
-	Path       string      `json:"path"`       // File path
-	ContentKey string      `json:"contentKey"` // Content-addressable key
-	Size       int64       `json:"size"`       // File size
-	Mode       os.FileMode `json:"mode"`       // File mode
-	ModTime    time.Time   `json:"modTime"`    // Last modification time
-	CreateTime time.Time   `json:"createTime"` // Creation time
-	AccessTime time.Time   `json:"accessTime"` // Last access time
-	Type       FileType    `json:"type"`       // File type
-	Owner      string      `json:"owner"`      // Owner of the file
-	Group      string      `json:"group"`      // Group of the file
+	Path       string      `json:"path"`
+	ContentKey string      `json:"contentKey"` // Empty for directories
+	Size       int64       `json:"size"`       // 0 for directories
+	Mode       os.FileMode `json:"mode"`
+	ModTime    time.Time   `json:"modTime"`
+	CreateTime time.Time   `json:"createTime"`
+	AccessTime time.Time   `json:"accessTime"`
+	Type       FileType    `json:"type"`
+	Owner      string      `json:"owner"`
+	Group      string      `json:"group"`
+	IsDir      bool        `json:"isDir"`    // Explicitly mark directories
+	IsHidden   bool        `json:"isHidden"` // For hidden/system dirs
+	Children   []string    `json:"children"` // For directory listing
 }
 
 // PathStore manages file path to content key mapping and metadata
@@ -201,19 +205,80 @@ func (ps *PathStore) Exists(path string) bool {
 }
 
 // ListDir lists entries in a directory
-func (ps *PathStore) ListDir(dirPath string) ([]string, error) {
+// metadata.go
+func (ps *PathStore) ListDir(dirPath string, filter func(*FileMetadata) bool) ([]FileMetadata, error) {
 	ps.mutex.RLock()
 	defer ps.mutex.RUnlock()
 
-	entries := []string{}
 	dirPath = filepath.Clean(dirPath)
-
-	for path, _ := range ps.pathToMeta {
-		parent := filepath.Dir(path)
-		if parent == dirPath {
-			entries = append(entries, filepath.Base(path))
-		}
+	if meta, ok := ps.pathToMeta[dirPath]; !ok || !meta.IsDir {
+		return nil, os.ErrNotExist
 	}
 
+	var entries []FileMetadata
+	for path, meta := range ps.pathToMeta {
+		if filepath.Dir(path) == dirPath {
+			if filter == nil || filter(meta) {
+				entries = append(entries, *meta)
+			}
+		}
+	}
 	return entries, nil
+}
+
+// metadata.go
+func (ps *PathStore) CreateDir(path string, mode os.FileMode, isHidden bool) error {
+	ps.mutex.Lock()
+	defer ps.mutex.Unlock()
+
+	path = filepath.Clean(path)
+	if ps.pathToMeta[path] != nil {
+		return os.ErrExist
+	}
+
+	// Ensure parent exists
+	parent := filepath.Dir(path)
+	if parent != "." && parent != "/" && !ps.pathToMeta[parent].IsDir {
+		return os.ErrNotExist
+	}
+
+	// Create metadata for the directory
+	now := time.Now()
+	meta := &FileMetadata{
+		Path:       path,
+		Mode:       mode | os.ModeDir,
+		ModTime:    now,
+		CreateTime: now,
+		AccessTime: now,
+		IsDir:      true,
+		IsHidden:   isHidden,
+		Owner:      "default", // TODO: from user context
+		Group:      "default", // TODO: from user context
+	}
+	ps.pathToMeta[path] = meta
+
+	// Update parent's children list
+	if parent != "." && parent != "/" {
+		ps.pathToMeta[parent].Children = append(ps.pathToMeta[parent].Children, filepath.Base(path))
+	}
+
+	return ps.saveMetadata(path)
+}
+
+func (ps *PathStore) CreateDirRecursive(path string, mode os.FileMode, isHidden bool) error {
+	path = filepath.Clean(path)
+	parts := strings.Split(path, "/")
+	current := ""
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		if !ps.Exists(current) {
+			if err := ps.CreateDir(current, mode, isHidden); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
