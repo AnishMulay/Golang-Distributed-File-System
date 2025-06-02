@@ -113,6 +113,27 @@ type MessageCloseFile struct {
 	Path string
 }
 
+type MessageMkdir struct {
+	Path      string
+	Recursive bool
+}
+
+type MessagePutFile struct {
+	Path    string
+	Mode    uint32
+	Content []byte
+}
+
+type MessageGetFileContent struct {
+	Path string
+}
+
+type MessageGetFileResponse struct {
+	Content []byte
+	Mode    uint32
+	Error   string
+}
+
 func (s *FileServer) OpenFile(path string, flags int, mode os.FileMode) (*OpenFile, error) {
 	path = filepath.Clean(path)
 
@@ -409,9 +430,95 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 		return s.handleWriteFileMessage(from, v)
 	case MessageCloseFile:
 		return s.handleCloseFileMessage(from, v)
+	case MessagePutFile:
+		return s.handlePutFileMessage(from, v)
+	case MessageGetFileContent:
+		return s.handleGetFileContentMessage(from, v)
+	case MessageMkdir:
+		if err := s.pathStore.CreateDirRecursive(v.Path, 0755, false); err != nil {
+			return err
+		}
+		// Don't broadcast again if this is a relayed message
+		if from != "" { // If from is empty, this is a local operation
+			return nil
+		}
+		// Broadcast to all peers except the sender
+		for addr, peer := range s.peers {
+			if addr == from {
+				continue
+			}
+			peer.Send([]byte{peertopeer.IncomingMessage})
+			buf := new(bytes.Buffer)
+			if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+				return err
+			}
+			if err := peer.Send(buf.Bytes()); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	return nil
+}
+
+func (s *FileServer) handlePutFileMessage(from string, msg MessagePutFile) error {
+	log.Printf("[%s] Received PutFile request for %s", s.Transport.Addr(), msg.Path)
+
+	// Store the file using the existing StoreFile method
+	err := s.StoreFile(msg.Path, bytes.NewReader(msg.Content), os.FileMode(msg.Mode))
+	if err != nil {
+		log.Printf("[%s] Error storing file: %v", s.Transport.Addr(), err)
+	}
+	return err
+}
+
+func (s *FileServer) handleGetFileContentMessage(from string, msg MessageGetFileContent) error {
+	log.Printf("[%s] Received GetFileContent request for %s", s.Transport.Addr(), msg.Path)
+
+	// Get the file metadata
+	meta, err := s.pathStore.Get(msg.Path)
+	if err != nil {
+		// Send error response
+		response := MessageGetFileResponse{
+			Error: err.Error(),
+		}
+		return s.sendResponse(from, response)
+	}
+
+	// Get the file content
+	reader, err := s.GetFile(msg.Path)
+	if err != nil {
+		response := MessageGetFileResponse{
+			Error: err.Error(),
+		}
+		return s.sendResponse(from, response)
+	}
+
+	// Read the file content
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		response := MessageGetFileResponse{
+			Error: err.Error(),
+		}
+		return s.sendResponse(from, response)
+	}
+
+	// Send the response
+	response := MessageGetFileResponse{
+		Content: content,
+		Mode:    uint32(meta.Mode),
+	}
+	return s.sendResponse(from, response)
+}
+
+func (s *FileServer) sendResponse(to string, response interface{}) error {
+	peer, ok := s.peers[to]
+	if !ok {
+		return fmt.Errorf("peer not found in peer map")
+	}
+
+	return gob.NewEncoder(peer).Encode(response)
 }
 
 func (s *FileServer) handleCloseFileMessage(from string, msg MessageCloseFile) error {
@@ -597,4 +704,8 @@ func init() {
 	gob.Register(MessageReadFile{})
 	gob.Register(MessageWriteFile{})
 	gob.Register(MessageCloseFile{})
+	gob.Register(MessageMkdir{})
+	gob.Register(MessagePutFile{})
+	gob.Register(MessageGetFileContent{})
+	gob.Register(MessageGetFileResponse{})
 }

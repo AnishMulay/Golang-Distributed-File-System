@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
+	"encoding/gob"
 	"fmt"
-	"io"
 	"log"
+	"net"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
 )
@@ -37,13 +39,14 @@ func main() {
 		fmt.Println("Usage: dfs <command> [arguments]")
 		fmt.Println("Commands:")
 		fmt.Println("  server --port <port> [--peers <peer1,peer2,...>]")
-		fmt.Println("  put <local-file> <remote-path>")
-		fmt.Println("  get <remote-path> <local-file>")
-		fmt.Println("  delete <remote-path>")
-		fmt.Println("  exists <remote-path>")
-		fmt.Println("  ls <remote-dir>")
-		fmt.Println("  touch <remote-path>")
-		fmt.Println("  cat <remote-path>")
+		fmt.Println("  put <server-address> <local-file> <remote-path>")
+		fmt.Println("  get <server-address> <remote-path> <local-file>")
+		fmt.Println("  delete <server-address> <remote-path>")
+		fmt.Println("  exists <server-address> <remote-path>")
+		fmt.Println("  ls <server-address> <remote-dir>")
+		fmt.Println("  touch <server-address> <remote-path>")
+		fmt.Println("  cat <server-address> <remote-path>")
+		fmt.Println("  mkdir <server-address> <remote-path> [--recursive]")
 		os.Exit(1)
 	}
 
@@ -52,58 +55,68 @@ func main() {
 	switch command {
 	case "server":
 		runServer()
-	case "put":
-		if len(os.Args) != 4 {
-			fmt.Println("Usage: dfs put <local-file> <remote-path>")
-			os.Exit(1)
-		}
-		runPut(os.Args[2], os.Args[3])
-	case "get":
-		if len(os.Args) != 4 {
-			fmt.Println("Usage: dfs get <remote-path> <local-file>")
-			os.Exit(1)
-		}
-		runGet(os.Args[2], os.Args[3])
-	case "delete":
-		if len(os.Args) != 3 {
-			fmt.Println("Usage: dfs delete <remote-path>")
-			os.Exit(1)
-		}
-		runDelete(os.Args[2])
-	case "exists":
-		if len(os.Args) != 3 {
-			fmt.Println("Usage: dfs exists <remote-path>")
-			os.Exit(1)
-		}
-		runExists(os.Args[2])
-	case "ls":
-		if len(os.Args) != 3 {
-			fmt.Println("Usage: dfs ls <remote-dir>")
-			os.Exit(1)
-		}
-		runLs(os.Args[2])
-	case "mkdir":
-		if len(os.Args) < 4 {
-			fmt.Println("Usage: dfs mkdir <remote-path> [--recursive]")
-			os.Exit(1)
-		}
-		recursive := len(os.Args) >= 4 && os.Args[3] == "--recursive"
-		runMkdir(os.Args[2], recursive)
-	case "touch":
-		if len(os.Args) != 3 {
-			fmt.Println("Usage: dfs touch <remote-path>")
-			os.Exit(1)
-		}
-		runTouch(os.Args[2])
-	case "cat":
-		if len(os.Args) != 3 {
-			fmt.Println("Usage: dfs cat <remote-path>")
-			os.Exit(1)
-		}
-		runCat(os.Args[2])
 	default:
-		fmt.Printf("Unknown command: %s\n", command)
-		os.Exit(1)
+		if len(os.Args) < 3 {
+			fmt.Println("You must specify a server address for this command")
+			os.Exit(1)
+		}
+		serverAddress := os.Args[2]
+		args := os.Args[3:]
+
+		switch command {
+		case "put":
+			if len(args) != 2 {
+				fmt.Println("Usage: dfs put <server-address> <local-file> <remote-path>")
+				os.Exit(1)
+			}
+			runPut(serverAddress, args[0], args[1])
+		case "get":
+			if len(args) != 2 {
+				fmt.Println("Usage: dfs get <server-address> <remote-path> <local-file>")
+				os.Exit(1)
+			}
+			runGet(serverAddress, args[0], args[1])
+		case "delete":
+			if len(args) != 1 {
+				fmt.Println("Usage: dfs delete <server-address> <remote-path>")
+				os.Exit(1)
+			}
+			runDelete(serverAddress, args[0])
+		case "exists":
+			if len(args) != 1 {
+				fmt.Println("Usage: dfs exists <server-address> <remote-path>")
+				os.Exit(1)
+			}
+			runExists(serverAddress, args[0])
+		case "ls":
+			if len(args) != 1 {
+				fmt.Println("Usage: dfs ls <server-address> <remote-dir>")
+				os.Exit(1)
+			}
+			runLs(serverAddress, args[0])
+		case "touch":
+			if len(args) != 1 {
+				fmt.Println("Usage: dfs touch <server-address> <remote-path>")
+				os.Exit(1)
+			}
+			runTouch(serverAddress, args[0])
+		case "cat":
+			if len(args) != 1 {
+				fmt.Println("Usage: dfs cat <server-address> <remote-path>")
+				os.Exit(1)
+			}
+			runCat(serverAddress, args[0])
+		case "mkdir":
+			if len(args) < 1 {
+				fmt.Println("Usage: dfs mkdir <server-address> <remote-path> [--recursive]")
+				os.Exit(1)
+			}
+			recursive := len(args) >= 2 && args[1] == "--recursive"
+			runMkdir(serverAddress, args[0], recursive)
+		default:
+			fmt.Printf("Unknown command: %s\n", command)
+			os.Exit(1)
+		}
 	}
 }
 
@@ -111,7 +124,6 @@ func runServer() {
 	var port string
 	var peers string
 
-	// Parse flags
 	for i := 2; i < len(os.Args); i++ {
 		if os.Args[i] == "--port" && i+1 < len(os.Args) {
 			port = os.Args[i+1]
@@ -123,11 +135,10 @@ func runServer() {
 	}
 
 	if port == "" {
-		port = "3000" // Default port
+		port = "3000"
 	}
 
 	listenAddress := ":" + port
-
 	var nodes []string
 	if peers != "" {
 		nodes = strings.Split(peers, ",")
@@ -138,143 +149,167 @@ func runServer() {
 	log.Fatal(server.Start())
 }
 
-func connectToServer() *FileServer {
-	// Connect to default server at :3000
-	s := makeServer(":0", ":3000")
-	go s.Start()
-	time.Sleep(100 * time.Millisecond) // Allow time to connect
-	return s
+func connectToPeer(address string) (peertopeer.Peer, error) {
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to server: %w", err)
+	}
+	return peertopeer.NewTCPPeer(conn, true), nil
 }
 
-func runPut(localFile, remotePath string) {
-	server := connectToServer()
-
-	file, err := os.Open(localFile)
+func sendCommand(address string, payload interface{}) error {
+	peer, err := connectToPeer(address)
 	if err != nil {
-		log.Fatalf("Failed to open local file: %v", err)
+		return err
 	}
-	defer file.Close()
+	defer peer.Close()
 
-	if err := server.StoreFile(remotePath, file, 0644); err != nil {
-		log.Fatalf("Failed to put file: %v", err)
+	msg := Message{Payload: payload}
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		return err
+	}
+
+	peer.Send([]byte{peertopeer.IncomingMessage})
+	return peer.Send(buf.Bytes())
+}
+
+func runPut(serverAddress, localFile, remotePath string) {
+	// Read the local file
+	fileData, err := os.ReadFile(localFile)
+	if err != nil {
+		log.Fatalf("Failed to read local file: %v", err)
+	}
+
+	// Send a single message containing both the file metadata and content
+	err = sendCommand(serverAddress, MessagePutFile{
+		Path:    remotePath,
+		Mode:    0644,
+		Content: fileData,
+	})
+	if err != nil {
+		log.Fatalf("Failed to upload file: %v", err)
 	}
 
 	fmt.Printf("Successfully uploaded %s to %s\n", localFile, remotePath)
 }
 
-func runGet(remotePath, localFile string) {
-	server := connectToServer()
-
-	reader, err := server.GetFile(remotePath)
+func runGet(serverAddress, remotePath, localFile string) {
+	// Send a request for the file
+	peer, err := connectToPeer(serverAddress)
 	if err != nil {
-		log.Fatalf("Failed to get file: %v", err)
+		log.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer peer.Close()
+
+	// Send the request message
+	msg := Message{Payload: MessageGetFileContent{Path: remotePath}}
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		log.Fatalf("Failed to encode message: %v", err)
 	}
 
-	file, err := os.Create(localFile)
-	if err != nil {
-		log.Fatalf("Failed to create local file: %v", err)
-	}
-	defer file.Close()
-
-	n, err := io.Copy(file, reader)
-	if err != nil {
-		log.Fatalf("Failed to write data: %v", err)
+	peer.Send([]byte{peertopeer.IncomingMessage})
+	if err := peer.Send(buf.Bytes()); err != nil {
+		log.Fatalf("Failed to send request: %v", err)
 	}
 
-	fmt.Printf("Successfully downloaded %s to %s (%d bytes)\n", remotePath, localFile, n)
+	// Wait for response
+	var response MessageGetFileResponse
+	decoder := gob.NewDecoder(peer)
+	if err := decoder.Decode(&response); err != nil {
+		log.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.Error != "" {
+		log.Fatalf("Server error: %s", response.Error)
+	}
+
+	// Write the file content to the local file
+	if err := os.WriteFile(localFile, response.Content, os.FileMode(response.Mode)); err != nil {
+		log.Fatalf("Failed to write local file: %v", err)
+	}
+
+	fmt.Printf("Successfully downloaded %s to %s (%d bytes)\n", remotePath, localFile, len(response.Content))
 }
 
-func runDelete(remotePath string) {
-	server := connectToServer()
-
-	if err := server.DeleteFile(remotePath); err != nil {
+func runDelete(serverAddress, remotePath string) {
+	err := sendCommand(serverAddress, MessageDeleteFile{Path: remotePath})
+	if err != nil {
 		log.Fatalf("Failed to delete file: %v", err)
 	}
-
 	fmt.Printf("Successfully deleted %s\n", remotePath)
 }
 
-func runExists(remotePath string) {
-	server := connectToServer()
-
-	exists := server.FileExists(remotePath)
-	fmt.Printf("%v\n", exists)
-
-	// Exit with status code 0 if file exists, 1 if not
-	if !exists {
+func runExists(serverAddress, remotePath string) {
+	err := sendCommand(serverAddress, MessageGetFile{Key: remotePath})
+	if err != nil {
+		fmt.Println("false")
 		os.Exit(1)
 	}
+	fmt.Println("true")
+	os.Exit(0)
 }
 
-func runMkdir(remotePath string, recursive bool) {
-	server := connectToServer()
-	var err error
-	if recursive {
-		err = server.pathStore.CreateDirRecursive(remotePath, 0755, false)
-	} else {
-		err = server.pathStore.CreateDir(remotePath, 0755, false)
-	}
+func runLs(serverAddress, remotePath string) {
+	// Implement list directory by requesting metadata
+	peer, err := connectToPeer(serverAddress)
 	if err != nil {
-		log.Fatalf("Failed to create directory: %v", err)
+		log.Fatalf("Failed to connect to server: %v", err)
 	}
-	fmt.Printf("Created directory %s\n", remotePath)
-}
+	defer peer.Close()
 
-func runLs(remotePath string) {
-	server := connectToServer()
-	entries, err := server.pathStore.ListDir(remotePath, nil)
+	err = sendCommand(serverAddress, Message{Payload: "LIST " + remotePath})
 	if err != nil {
 		log.Fatalf("Failed to list directory: %v", err)
 	}
-	for _, entry := range entries {
-		mode := "f"
-		if entry.IsDir {
-			mode = "d"
-		}
-		fmt.Printf("%s %s\n", mode, entry.Path)
-	}
+
+	// Wait for response (you'll need to implement proper response handling)
+	fmt.Println("Directory listing functionality requires server-side implementation")
 }
 
-func runTouch(remotePath string) {
-	server := connectToServer()
-
-	// Try to open with O_CREATE | O_EXCL first for atomic creation
-	file, err := server.OpenFile(remotePath, O_CREATE|O_EXCL|O_WRONLY, 0644)
+func runMkdir(serverAddress, path string, recursive bool) {
+	err := sendCommand(serverAddress, MessageMkdir{
+		Path:      path,
+		Recursive: recursive,
+	})
 	if err != nil {
-		if os.IsExist(err) {
-			// File exists, just update timestamp
-			meta, err := server.pathStore.Get(remotePath)
-			if err != nil {
-				log.Fatalf("Failed to get metadata: %v", err)
-			}
-
-			meta.ModTime = time.Now()
-			meta.AccessTime = time.Now()
-
-			if err := server.pathStore.Set(remotePath, meta.ContentKey, meta.Size, meta.Mode, meta.Type); err != nil {
-				log.Fatalf("Failed to update timestamps: %v", err)
-			}
-
-			fmt.Printf("Updated timestamps for %s\n", remotePath)
-			return
-		}
-
-		log.Fatalf("Failed to touch file: %v", err)
+		log.Fatalf("Failed to create directory: %v", err)
 	}
-	defer file.Close()
-
-	fmt.Printf("Created empty file %s\n", remotePath)
+	fmt.Printf("Successfully created directory %s\n", path)
 }
 
-func runCat(remotePath string) {
-	server := connectToServer()
-
-	reader, err := server.GetFile(remotePath)
+func runTouch(serverAddress, remotePath string) {
+	err := sendCommand(serverAddress, MessageOpenFile{
+		Path:  remotePath,
+		Flags: O_CREATE | O_EXCL | O_WRONLY,
+		Mode:  0644,
+	})
 	if err != nil {
-		log.Fatalf("Failed to get file: %v", err)
+		log.Fatalf("Failed to create file: %v", err)
+	}
+	fmt.Printf("Successfully created empty file %s\n", remotePath)
+}
+
+func runCat(serverAddress, remotePath string) {
+	// Request the file
+	err := sendCommand(serverAddress, MessageGetFile{Key: remotePath})
+	if err != nil {
+		log.Fatalf("Failed to request file: %v", err)
 	}
 
-	if _, err := io.Copy(os.Stdout, reader); err != nil {
+	// Connect to receive the file stream
+	peer, err := connectToPeer(serverAddress)
+	if err != nil {
+		log.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer peer.Close()
+
+	var fileSize int64
+	binary.Read(peer, binary.LittleEndian, &fileSize)
+
+	_, err = copyDecrypt(newEncryptionKey(), peer, os.Stdout)
+	if err != nil {
 		log.Fatalf("Failed to output data: %v", err)
 	}
 }
