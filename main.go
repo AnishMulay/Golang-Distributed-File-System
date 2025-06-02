@@ -234,21 +234,81 @@ func runGet(serverAddress, remotePath, localFile string) {
 }
 
 func runDelete(serverAddress, remotePath string) {
-	err := sendCommand(serverAddress, MessageDeleteFile{Path: remotePath})
+	// Connect to the server
+	peer, err := connectToPeer(serverAddress)
 	if err != nil {
-		log.Fatalf("Failed to delete file: %v", err)
+		log.Fatalf("Failed to connect to server: %v", err)
 	}
+	defer peer.Close()
+
+	// Send the delete request
+	msg := Message{Payload: MessageDeleteFileContent{Path: remotePath}}
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		log.Fatalf("Failed to encode message: %v", err)
+	}
+
+	peer.Send([]byte{peertopeer.IncomingMessage})
+	if err := peer.Send(buf.Bytes()); err != nil {
+		log.Fatalf("Failed to send request: %v", err)
+	}
+
+	// Wait for response
+	var response MessageDeleteFileResponse
+	decoder := gob.NewDecoder(peer)
+	if err := decoder.Decode(&response); err != nil {
+		log.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.Error != "" {
+		log.Fatalf("Server error: %s", response.Error)
+	}
+
 	fmt.Printf("Successfully deleted %s\n", remotePath)
 }
 
 func runExists(serverAddress, remotePath string) {
-	err := sendCommand(serverAddress, MessageGetFile{Key: remotePath})
+	// Connect to the server
+	peer, err := connectToPeer(serverAddress)
 	if err != nil {
 		fmt.Println("false")
 		os.Exit(1)
 	}
-	fmt.Println("true")
-	os.Exit(0)
+	defer peer.Close()
+
+	// Send the exists request
+	msg := Message{Payload: MessageFileExists{Path: remotePath}}
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		fmt.Println("false")
+		os.Exit(1)
+	}
+
+	peer.Send([]byte{peertopeer.IncomingMessage})
+	if err := peer.Send(buf.Bytes()); err != nil {
+		fmt.Println("false")
+		os.Exit(1)
+	}
+
+	// Wait for response
+	var response MessageFileExistsResponse
+	decoder := gob.NewDecoder(peer)
+	if err := decoder.Decode(&response); err != nil {
+		fmt.Println("false")
+		os.Exit(1)
+	}
+
+	if response.Error != "" {
+		fmt.Println("false")
+		os.Exit(1)
+	}
+
+	fmt.Println(response.Exists)
+	if response.Exists {
+		os.Exit(0)
+	} else {
+		os.Exit(1)
+	}
 }
 
 func runLs(serverAddress, remotePath string) {

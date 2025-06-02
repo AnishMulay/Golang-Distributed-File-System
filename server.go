@@ -134,6 +134,24 @@ type MessageGetFileResponse struct {
 	Error   string
 }
 
+type MessageDeleteFileContent struct {
+	Path string
+}
+
+type MessageDeleteFileResponse struct {
+	Success bool
+	Error   string
+}
+
+type MessageFileExists struct {
+	Path string
+}
+
+type MessageFileExistsResponse struct {
+	Exists bool
+	Error  string
+}
+
 func (s *FileServer) OpenFile(path string, flags int, mode os.FileMode) (*OpenFile, error) {
 	path = filepath.Clean(path)
 
@@ -434,6 +452,10 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 		return s.handlePutFileMessage(from, v)
 	case MessageGetFileContent:
 		return s.handleGetFileContentMessage(from, v)
+	case MessageDeleteFileContent:
+		return s.handleDeleteFileContentMessage(from, v)
+	case MessageFileExists:
+		return s.handleFileExistsMessage(from, v)
 	case MessageMkdir:
 		if err := s.pathStore.CreateDirRecursive(v.Path, 0755, false); err != nil {
 			return err
@@ -460,6 +482,37 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 	}
 
 	return nil
+}
+
+func (s *FileServer) handleDeleteFileContentMessage(from string, msg MessageDeleteFileContent) error {
+	log.Printf("[%s] Received DeleteFileContent request for %s", s.Transport.Addr(), msg.Path)
+
+	// Delete the file
+	err := s.DeleteFile(msg.Path)
+
+	// Send response
+	response := MessageDeleteFileResponse{
+		Success: err == nil,
+	}
+	if err != nil {
+		response.Error = err.Error()
+	}
+
+	return s.sendResponse(from, response)
+}
+
+func (s *FileServer) handleFileExistsMessage(from string, msg MessageFileExists) error {
+	log.Printf("[%s] Received FileExists request for %s", s.Transport.Addr(), msg.Path)
+
+	// Check if the file exists
+	exists := s.FileExists(msg.Path)
+
+	// Send response
+	response := MessageFileExistsResponse{
+		Exists: exists,
+	}
+
+	return s.sendResponse(from, response)
 }
 
 func (s *FileServer) handlePutFileMessage(from string, msg MessagePutFile) error {
@@ -708,4 +761,8 @@ func init() {
 	gob.Register(MessagePutFile{})
 	gob.Register(MessageGetFileContent{})
 	gob.Register(MessageGetFileResponse{})
+	gob.Register(MessageDeleteFileContent{})
+	gob.Register(MessageDeleteFileResponse{})
+	gob.Register(MessageFileExists{})
+	gob.Register(MessageFileExistsResponse{})
 }
