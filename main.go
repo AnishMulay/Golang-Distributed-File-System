@@ -13,13 +13,14 @@ import (
 	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
 )
 
-func makeServer(listenAddress string, nodes ...string) *FileServer {
-	tcpTransposrtConfig := peertopeer.TCPTransportConfig{
+// createServer creates a new file server with the given configuration
+func createServer(listenAddress string, nodes ...string) *FileServer {
+	tcpTransportConfig := peertopeer.TCPTransportConfig{
 		ListenAddress: listenAddress,
 		HandShakeFunc: peertopeer.NOPEHandShakeFunc,
 		Decoder:       peertopeer.DefaultDecoder{},
 	}
-	tcpTransport := peertopeer.NewTCPTransport(tcpTransposrtConfig)
+	tcpTransport := peertopeer.NewTCPTransport(tcpTransportConfig)
 
 	fileServerConfig := FileServerConfig{
 		EncryptionKey:     newEncryptionKey(),
@@ -36,17 +37,7 @@ func makeServer(listenAddress string, nodes ...string) *FileServer {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: dfs <command> [arguments]")
-		fmt.Println("Commands:")
-		fmt.Println("  server --port <port> [--peers <peer1,peer2,...>]")
-		fmt.Println("  put <server-address> <local-file> <remote-path>")
-		fmt.Println("  get <server-address> <remote-path> <local-file>")
-		fmt.Println("  delete <server-address> <remote-path>")
-		fmt.Println("  exists <server-address> <remote-path>")
-		fmt.Println("  ls <server-address> <remote-dir>")
-		fmt.Println("  touch <server-address> <remote-path>")
-		fmt.Println("  cat <server-address> <remote-path>")
-		fmt.Println("  mkdir <server-address> <remote-path> [--recursive]")
+		printUsage()
 		os.Exit(1)
 	}
 
@@ -120,6 +111,21 @@ func main() {
 	}
 }
 
+// printUsage prints the usage information for the CLI
+func printUsage() {
+	fmt.Println("Usage: dfs <command> [arguments]")
+	fmt.Println("Commands:")
+	fmt.Println("  server --port <port> [--peers <peer1,peer2,...>]")
+	fmt.Println("  put <server-address> <local-file> <remote-path>")
+	fmt.Println("  get <server-address> <remote-path> <local-file>")
+	fmt.Println("  delete <server-address> <remote-path>")
+	fmt.Println("  exists <server-address> <remote-path>")
+	fmt.Println("  ls <server-address> <remote-dir>")
+	fmt.Println("  touch <server-address> <remote-path>")
+	fmt.Println("  cat <server-address> <remote-path>")
+	fmt.Println("  mkdir <server-address> <remote-path> [--recursive]")
+}
+
 func runServer() {
 	var port string
 	var peers string
@@ -144,11 +150,12 @@ func runServer() {
 		nodes = strings.Split(peers, ",")
 	}
 
-	server := makeServer(listenAddress, nodes...)
+	server := createServer(listenAddress, nodes...)
 	log.Printf("Starting server on %s with peers %v\n", listenAddress, nodes)
 	log.Fatal(server.Start())
 }
 
+// connectToPeer establishes a connection to a peer server
 func connectToPeer(address string) (peertopeer.Peer, error) {
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
@@ -157,21 +164,43 @@ func connectToPeer(address string) (peertopeer.Peer, error) {
 	return peertopeer.NewTCPPeer(conn, true), nil
 }
 
-func sendCommand(address string, payload interface{}) error {
+// sendRequest sends a message to a peer and returns the connection for receiving a response
+func sendRequest(address string, payload interface{}) (peertopeer.Peer, error) {
 	peer, err := connectToPeer(address)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer peer.Close()
 
 	msg := Message{Payload: payload}
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		return err
+		peer.Close()
+		return nil, err
 	}
 
 	peer.Send([]byte{peertopeer.IncomingMessage})
-	return peer.Send(buf.Bytes())
+	if err := peer.Send(buf.Bytes()); err != nil {
+		peer.Close()
+		return nil, err
+	}
+
+	return peer, nil
+}
+
+// sendCommand sends a message to a peer without expecting a response
+func sendCommand(address string, payload interface{}) error {
+	peer, err := sendRequest(address, payload)
+	if err != nil {
+		return err
+	}
+	defer peer.Close()
+	return nil
+}
+
+// receiveResponse receives and decodes a response from a peer
+func receiveResponse(peer peertopeer.Peer, response interface{}) error {
+	decoder := gob.NewDecoder(peer)
+	return decoder.Decode(response)
 }
 
 func runPut(serverAddress, localFile, remotePath string) {
@@ -196,28 +225,15 @@ func runPut(serverAddress, localFile, remotePath string) {
 
 func runGet(serverAddress, remotePath, localFile string) {
 	// Send a request for the file
-	peer, err := connectToPeer(serverAddress)
+	peer, err := sendRequest(serverAddress, MessageGetFileContent{Path: remotePath})
 	if err != nil {
 		log.Fatalf("Failed to connect to server: %v", err)
 	}
 	defer peer.Close()
 
-	// Send the request message
-	msg := Message{Payload: MessageGetFileContent{Path: remotePath}}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		log.Fatalf("Failed to encode message: %v", err)
-	}
-
-	peer.Send([]byte{peertopeer.IncomingMessage})
-	if err := peer.Send(buf.Bytes()); err != nil {
-		log.Fatalf("Failed to send request: %v", err)
-	}
-
 	// Wait for response
 	var response MessageGetFileResponse
-	decoder := gob.NewDecoder(peer)
-	if err := decoder.Decode(&response); err != nil {
+	if err := receiveResponse(peer, &response); err != nil {
 		log.Fatalf("Failed to decode response: %v", err)
 	}
 
@@ -234,29 +250,16 @@ func runGet(serverAddress, remotePath, localFile string) {
 }
 
 func runDelete(serverAddress, remotePath string) {
-	// Connect to the server
-	peer, err := connectToPeer(serverAddress)
+	// Send the delete request
+	peer, err := sendRequest(serverAddress, MessageDeleteFileContent{Path: remotePath})
 	if err != nil {
 		log.Fatalf("Failed to connect to server: %v", err)
 	}
 	defer peer.Close()
 
-	// Send the delete request
-	msg := Message{Payload: MessageDeleteFileContent{Path: remotePath}}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		log.Fatalf("Failed to encode message: %v", err)
-	}
-
-	peer.Send([]byte{peertopeer.IncomingMessage})
-	if err := peer.Send(buf.Bytes()); err != nil {
-		log.Fatalf("Failed to send request: %v", err)
-	}
-
 	// Wait for response
 	var response MessageDeleteFileResponse
-	decoder := gob.NewDecoder(peer)
-	if err := decoder.Decode(&response); err != nil {
+	if err := receiveResponse(peer, &response); err != nil {
 		log.Fatalf("Failed to decode response: %v", err)
 	}
 
@@ -268,32 +271,17 @@ func runDelete(serverAddress, remotePath string) {
 }
 
 func runExists(serverAddress, remotePath string) {
-	// Connect to the server
-	peer, err := connectToPeer(serverAddress)
+	// Send the exists request
+	peer, err := sendRequest(serverAddress, MessageFileExists{Path: remotePath})
 	if err != nil {
 		fmt.Println("false")
 		os.Exit(1)
 	}
 	defer peer.Close()
 
-	// Send the exists request
-	msg := Message{Payload: MessageFileExists{Path: remotePath}}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		fmt.Println("false")
-		os.Exit(1)
-	}
-
-	peer.Send([]byte{peertopeer.IncomingMessage})
-	if err := peer.Send(buf.Bytes()); err != nil {
-		fmt.Println("false")
-		os.Exit(1)
-	}
-
 	// Wait for response
 	var response MessageFileExistsResponse
-	decoder := gob.NewDecoder(peer)
-	if err := decoder.Decode(&response); err != nil {
+	if err := receiveResponse(peer, &response); err != nil {
 		fmt.Println("false")
 		os.Exit(1)
 	}
@@ -312,29 +300,16 @@ func runExists(serverAddress, remotePath string) {
 }
 
 func runLs(serverAddress, remotePath string) {
-	// Connect to the server
-	peer, err := connectToPeer(serverAddress)
+	// Send the ls request
+	peer, err := sendRequest(serverAddress, MessageLsDirectory{Path: remotePath})
 	if err != nil {
 		log.Fatalf("Failed to connect to server: %v", err)
 	}
 	defer peer.Close()
 
-	// Send the ls request
-	msg := Message{Payload: MessageLsDirectory{Path: remotePath}}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		log.Fatalf("Failed to encode message: %v", err)
-	}
-
-	peer.Send([]byte{peertopeer.IncomingMessage})
-	if err := peer.Send(buf.Bytes()); err != nil {
-		log.Fatalf("Failed to send request: %v", err)
-	}
-
 	// Wait for response
 	var response MessageLsDirectoryResponse
-	decoder := gob.NewDecoder(peer)
-	if err := decoder.Decode(&response); err != nil {
+	if err := receiveResponse(peer, &response); err != nil {
 		log.Fatalf("Failed to decode response: %v", err)
 	}
 
@@ -361,32 +336,19 @@ func runLs(serverAddress, remotePath string) {
 }
 
 func runMkdir(serverAddress, path string, recursive bool) {
-	// Connect to the server
-	peer, err := connectToPeer(serverAddress)
+	// Send the mkdir request
+	peer, err := sendRequest(serverAddress, MessageMkdir{
+		Path:      path,
+		Recursive: recursive,
+	})
 	if err != nil {
 		log.Fatalf("Failed to connect to server: %v", err)
 	}
 	defer peer.Close()
 
-	// Send the mkdir request
-	msg := Message{Payload: MessageMkdir{
-		Path:      path,
-		Recursive: recursive,
-	}}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		log.Fatalf("Failed to encode message: %v", err)
-	}
-
-	peer.Send([]byte{peertopeer.IncomingMessage})
-	if err := peer.Send(buf.Bytes()); err != nil {
-		log.Fatalf("Failed to send request: %v", err)
-	}
-
 	// Wait for response
 	var response MessageMkdirResponse
-	decoder := gob.NewDecoder(peer)
-	if err := decoder.Decode(&response); err != nil {
+	if err := receiveResponse(peer, &response); err != nil {
 		log.Fatalf("Failed to decode response: %v", err)
 	}
 
@@ -398,32 +360,19 @@ func runMkdir(serverAddress, path string, recursive bool) {
 }
 
 func runTouch(serverAddress, remotePath string) {
-	// Connect to the server
-	peer, err := connectToPeer(serverAddress)
+	// Send the touch request
+	peer, err := sendRequest(serverAddress, MessageTouchFile{
+		Path: remotePath,
+		Mode: 0644,
+	})
 	if err != nil {
 		log.Fatalf("Failed to connect to server: %v", err)
 	}
 	defer peer.Close()
 
-	// Send the touch request
-	msg := Message{Payload: MessageTouchFile{
-		Path: remotePath,
-		Mode: 0644,
-	}}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		log.Fatalf("Failed to encode message: %v", err)
-	}
-
-	peer.Send([]byte{peertopeer.IncomingMessage})
-	if err := peer.Send(buf.Bytes()); err != nil {
-		log.Fatalf("Failed to send request: %v", err)
-	}
-
 	// Wait for response
 	var response MessageTouchFileResponse
-	decoder := gob.NewDecoder(peer)
-	if err := decoder.Decode(&response); err != nil {
+	if err := receiveResponse(peer, &response); err != nil {
 		log.Fatalf("Failed to decode response: %v", err)
 	}
 
@@ -435,29 +384,16 @@ func runTouch(serverAddress, remotePath string) {
 }
 
 func runCat(serverAddress, remotePath string) {
-	// Connect to the server
-	peer, err := connectToPeer(serverAddress)
+	// Send the cat request
+	peer, err := sendRequest(serverAddress, MessageCatFile{Path: remotePath})
 	if err != nil {
 		log.Fatalf("Failed to connect to server: %v", err)
 	}
 	defer peer.Close()
 
-	// Send the cat request
-	msg := Message{Payload: MessageCatFile{Path: remotePath}}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		log.Fatalf("Failed to encode message: %v", err)
-	}
-
-	peer.Send([]byte{peertopeer.IncomingMessage})
-	if err := peer.Send(buf.Bytes()); err != nil {
-		log.Fatalf("Failed to send request: %v", err)
-	}
-
 	// Wait for response
 	var response MessageCatFileResponse
-	decoder := gob.NewDecoder(peer)
-	if err := decoder.Decode(&response); err != nil {
+	if err := receiveResponse(peer, &response); err != nil {
 		log.Fatalf("Failed to decode response: %v", err)
 	}
 
