@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
 )
@@ -311,30 +312,88 @@ func runExists(serverAddress, remotePath string) {
 }
 
 func runLs(serverAddress, remotePath string) {
-	// Implement list directory by requesting metadata
+	// Connect to the server
 	peer, err := connectToPeer(serverAddress)
 	if err != nil {
 		log.Fatalf("Failed to connect to server: %v", err)
 	}
 	defer peer.Close()
 
-	err = sendCommand(serverAddress, Message{Payload: "LIST " + remotePath})
-	if err != nil {
-		log.Fatalf("Failed to list directory: %v", err)
+	// Send the ls request
+	msg := Message{Payload: MessageLsDirectory{Path: remotePath}}
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		log.Fatalf("Failed to encode message: %v", err)
 	}
 
-	// Wait for response (you'll need to implement proper response handling)
-	fmt.Println("Directory listing functionality requires server-side implementation")
+	peer.Send([]byte{peertopeer.IncomingMessage})
+	if err := peer.Send(buf.Bytes()); err != nil {
+		log.Fatalf("Failed to send request: %v", err)
+	}
+
+	// Wait for response
+	var response MessageLsDirectoryResponse
+	decoder := gob.NewDecoder(peer)
+	if err := decoder.Decode(&response); err != nil {
+		log.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.Error != "" {
+		log.Fatalf("Server error: %s", response.Error)
+	}
+
+	// Display the directory listing
+	if len(response.Files) == 0 {
+		fmt.Println("Directory is empty")
+		return
+	}
+
+	// Format and print the directory listing
+	for _, file := range response.Files {
+		modTime := time.Unix(file.ModTime, 0).Format("Jan 02 15:04")
+		fileType := "-"
+		if file.IsDir {
+			fileType = "d"
+		}
+		mode := os.FileMode(file.Mode).String()
+		fmt.Printf("%s%s %8d %s %s\n", fileType, mode[1:], file.Size, modTime, file.Name)
+	}
 }
 
 func runMkdir(serverAddress, path string, recursive bool) {
-	err := sendCommand(serverAddress, MessageMkdir{
+	// Connect to the server
+	peer, err := connectToPeer(serverAddress)
+	if err != nil {
+		log.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer peer.Close()
+
+	// Send the mkdir request
+	msg := Message{Payload: MessageMkdir{
 		Path:      path,
 		Recursive: recursive,
-	})
-	if err != nil {
-		log.Fatalf("Failed to create directory: %v", err)
+	}}
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		log.Fatalf("Failed to encode message: %v", err)
 	}
+
+	peer.Send([]byte{peertopeer.IncomingMessage})
+	if err := peer.Send(buf.Bytes()); err != nil {
+		log.Fatalf("Failed to send request: %v", err)
+	}
+
+	// Wait for response
+	var response MessageMkdirResponse
+	decoder := gob.NewDecoder(peer)
+	if err := decoder.Decode(&response); err != nil {
+		log.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.Error != "" {
+		log.Fatalf("Server error: %s", response.Error)
+	}
+
 	fmt.Printf("Successfully created directory %s\n", path)
 }
 

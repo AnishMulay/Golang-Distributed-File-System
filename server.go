@@ -171,6 +171,28 @@ type MessageCatFileResponse struct {
 	Error   string
 }
 
+type MessageLsDirectory struct {
+	Path string
+}
+
+type FileInfo struct {
+	Name    string
+	Size    int64
+	Mode    uint32
+	IsDir   bool
+	ModTime int64 // Unix timestamp
+}
+
+type MessageLsDirectoryResponse struct {
+	Files []FileInfo
+	Error string
+}
+
+type MessageMkdirResponse struct {
+	Success bool
+	Error   string
+}
+
 func (s *FileServer) OpenFile(path string, flags int, mode os.FileMode) (*OpenFile, error) {
 	path = filepath.Clean(path)
 
@@ -479,32 +501,43 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 		return s.handleTouchFileMessage(from, v)
 	case MessageCatFile:
 		return s.handleCatFileMessage(from, v)
+	case MessageLsDirectory:
+		return s.handleLsDirectoryMessage(from, v)
 	case MessageMkdir:
-		if err := s.pathStore.CreateDirRecursive(v.Path, 0755, false); err != nil {
-			return err
-		}
-		// Don't broadcast again if this is a relayed message
-		if from != "" { // If from is empty, this is a local operation
-			return nil
-		}
-		// Broadcast to all peers except the sender
-		for addr, peer := range s.peers {
-			if addr == from {
-				continue
-			}
-			peer.Send([]byte{peertopeer.IncomingMessage})
-			buf := new(bytes.Buffer)
-			if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-				return err
-			}
-			if err := peer.Send(buf.Bytes()); err != nil {
-				return err
-			}
-		}
-		return nil
+		return s.handleMkdirMessage(from, v)
+	default:
+		return fmt.Errorf("unknown message type: %T", v)
+	}
+}
+
+func (s *FileServer) handleLsDirectoryMessage(from string, msg MessageLsDirectory) error {
+	log.Printf("[%s] Received LsDirectory request for %s", s.Transport.Addr(), msg.Path)
+
+	// For now, just return a message that directory listing is not fully implemented
+	response := MessageLsDirectoryResponse{
+		Files: []FileInfo{},
+		Error: "Directory listing functionality is not fully implemented yet",
 	}
 
-	return nil
+	return s.sendResponse(from, response)
+}
+
+func (s *FileServer) handleMkdirMessage(from string, msg MessageMkdir) error {
+	log.Printf("[%s] Received Mkdir request for %s (recursive: %v)",
+		s.Transport.Addr(), msg.Path, msg.Recursive)
+
+	// Create the directory
+	err := s.pathStore.CreateDirRecursive(msg.Path, 0755, msg.Recursive)
+
+	// Send response
+	response := MessageMkdirResponse{
+		Success: err == nil,
+	}
+	if err != nil {
+		response.Error = err.Error()
+	}
+
+	return s.sendResponse(from, response)
 }
 
 func (s *FileServer) handleTouchFileMessage(from string, msg MessageTouchFile) error {
@@ -837,4 +870,7 @@ func init() {
 	gob.Register(MessageTouchFileResponse{})
 	gob.Register(MessageCatFile{})
 	gob.Register(MessageCatFileResponse{})
+	gob.Register(MessageLsDirectory{})
+	gob.Register(MessageLsDirectoryResponse{})
+	gob.Register(MessageMkdirResponse{})
 }
