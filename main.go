@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	"log"
@@ -340,36 +339,73 @@ func runMkdir(serverAddress, path string, recursive bool) {
 }
 
 func runTouch(serverAddress, remotePath string) {
-	err := sendCommand(serverAddress, MessageOpenFile{
-		Path:  remotePath,
-		Flags: O_CREATE | O_EXCL | O_WRONLY,
-		Mode:  0644,
-	})
-	if err != nil {
-		log.Fatalf("Failed to create file: %v", err)
-	}
-	fmt.Printf("Successfully created empty file %s\n", remotePath)
-}
-
-func runCat(serverAddress, remotePath string) {
-	// Request the file
-	err := sendCommand(serverAddress, MessageGetFile{Key: remotePath})
-	if err != nil {
-		log.Fatalf("Failed to request file: %v", err)
-	}
-
-	// Connect to receive the file stream
+	// Connect to the server
 	peer, err := connectToPeer(serverAddress)
 	if err != nil {
 		log.Fatalf("Failed to connect to server: %v", err)
 	}
 	defer peer.Close()
 
-	var fileSize int64
-	binary.Read(peer, binary.LittleEndian, &fileSize)
-
-	_, err = copyDecrypt(newEncryptionKey(), peer, os.Stdout)
-	if err != nil {
-		log.Fatalf("Failed to output data: %v", err)
+	// Send the touch request
+	msg := Message{Payload: MessageTouchFile{
+		Path: remotePath,
+		Mode: 0644,
+	}}
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		log.Fatalf("Failed to encode message: %v", err)
 	}
+
+	peer.Send([]byte{peertopeer.IncomingMessage})
+	if err := peer.Send(buf.Bytes()); err != nil {
+		log.Fatalf("Failed to send request: %v", err)
+	}
+
+	// Wait for response
+	var response MessageTouchFileResponse
+	decoder := gob.NewDecoder(peer)
+	if err := decoder.Decode(&response); err != nil {
+		log.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.Error != "" {
+		log.Fatalf("Server error: %s", response.Error)
+	}
+
+	fmt.Printf("Successfully created empty file %s\n", remotePath)
+}
+
+func runCat(serverAddress, remotePath string) {
+	// Connect to the server
+	peer, err := connectToPeer(serverAddress)
+	if err != nil {
+		log.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer peer.Close()
+
+	// Send the cat request
+	msg := Message{Payload: MessageCatFile{Path: remotePath}}
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		log.Fatalf("Failed to encode message: %v", err)
+	}
+
+	peer.Send([]byte{peertopeer.IncomingMessage})
+	if err := peer.Send(buf.Bytes()); err != nil {
+		log.Fatalf("Failed to send request: %v", err)
+	}
+
+	// Wait for response
+	var response MessageCatFileResponse
+	decoder := gob.NewDecoder(peer)
+	if err := decoder.Decode(&response); err != nil {
+		log.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.Error != "" {
+		log.Fatalf("Server error: %s", response.Error)
+	}
+
+	// Write the content to stdout
+	os.Stdout.Write(response.Content)
 }

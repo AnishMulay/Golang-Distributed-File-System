@@ -152,6 +152,25 @@ type MessageFileExistsResponse struct {
 	Error  string
 }
 
+type MessageTouchFile struct {
+	Path string
+	Mode uint32
+}
+
+type MessageTouchFileResponse struct {
+	Success bool
+	Error   string
+}
+
+type MessageCatFile struct {
+	Path string
+}
+
+type MessageCatFileResponse struct {
+	Content []byte
+	Error   string
+}
+
 func (s *FileServer) OpenFile(path string, flags int, mode os.FileMode) (*OpenFile, error) {
 	path = filepath.Clean(path)
 
@@ -456,6 +475,10 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 		return s.handleDeleteFileContentMessage(from, v)
 	case MessageFileExists:
 		return s.handleFileExistsMessage(from, v)
+	case MessageTouchFile:
+		return s.handleTouchFileMessage(from, v)
+	case MessageCatFile:
+		return s.handleCatFileMessage(from, v)
 	case MessageMkdir:
 		if err := s.pathStore.CreateDirRecursive(v.Path, 0755, false); err != nil {
 			return err
@@ -482,6 +505,51 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 	}
 
 	return nil
+}
+
+func (s *FileServer) handleTouchFileMessage(from string, msg MessageTouchFile) error {
+	log.Printf("[%s] Received TouchFile request for %s", s.Transport.Addr(), msg.Path)
+
+	// Create an empty file
+	err := s.StoreFile(msg.Path, strings.NewReader(""), os.FileMode(msg.Mode))
+
+	// Send response
+	response := MessageTouchFileResponse{
+		Success: err == nil,
+	}
+	if err != nil {
+		response.Error = err.Error()
+	}
+
+	return s.sendResponse(from, response)
+}
+
+func (s *FileServer) handleCatFileMessage(from string, msg MessageCatFile) error {
+	log.Printf("[%s] Received CatFile request for %s", s.Transport.Addr(), msg.Path)
+
+	// Get the file content
+	reader, err := s.GetFile(msg.Path)
+	if err != nil {
+		response := MessageCatFileResponse{
+			Error: err.Error(),
+		}
+		return s.sendResponse(from, response)
+	}
+
+	// Read the file content
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		response := MessageCatFileResponse{
+			Error: err.Error(),
+		}
+		return s.sendResponse(from, response)
+	}
+
+	// Send the response
+	response := MessageCatFileResponse{
+		Content: content,
+	}
+	return s.sendResponse(from, response)
 }
 
 func (s *FileServer) handleDeleteFileContentMessage(from string, msg MessageDeleteFileContent) error {
@@ -765,4 +833,8 @@ func init() {
 	gob.Register(MessageDeleteFileResponse{})
 	gob.Register(MessageFileExists{})
 	gob.Register(MessageFileExistsResponse{})
+	gob.Register(MessageTouchFile{})
+	gob.Register(MessageTouchFileResponse{})
+	gob.Register(MessageCatFile{})
+	gob.Register(MessageCatFileResponse{})
 }
