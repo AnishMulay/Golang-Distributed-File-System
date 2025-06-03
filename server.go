@@ -32,6 +32,9 @@ type FileServer struct {
 }
 
 func NewFileServer(config FileServerConfig) *FileServer {
+	// Register all message types with gob
+	RegisterMessageTypes()
+	
 	storeConfig := StoreConfig{
 		Root:          config.StorageRoot,
 		PathTransform: config.PathTransformFunc,
@@ -64,7 +67,8 @@ func (s *FileServer) broadcast(msg *Message) error {
 		log.Printf("[%s]: Sending message to %s\n", s.Transport.Addr(), peer.RemoteAddr())
 		peer.Send([]byte{peertopeer.IncomingMessage})
 		if err := peer.Send(buf.Bytes()); err != nil {
-			return err
+			log.Printf("[%s]: Error sending to %s: %v\n", s.Transport.Addr(), peer.RemoteAddr(), err)
+			continue // Continue with other peers even if one fails
 		}
 	}
 	return nil

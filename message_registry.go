@@ -4,9 +4,9 @@ import (
 	"encoding/gob"
 )
 
-// init registers all message types with the gob encoder
-func init() {
-	// Register all message types for gob encoding/decoding
+// RegisterMessageTypes registers all message types with gob
+func RegisterMessageTypes() {
+	// Register message types
 	gob.Register(MessageStoreFile{})
 	gob.Register(MessageGetFile{})
 	gob.Register(MessageDeleteFile{})
@@ -14,7 +14,6 @@ func init() {
 	gob.Register(MessageReadFile{})
 	gob.Register(MessageWriteFile{})
 	gob.Register(MessageCloseFile{})
-	gob.Register(MessageMkdir{})
 	gob.Register(MessagePutFile{})
 	gob.Register(MessageGetFileContent{})
 	gob.Register(MessageGetFileResponse{})
@@ -28,5 +27,7 @@ func init() {
 	gob.Register(MessageCatFileResponse{})
 	gob.Register(MessageLsDirectory{})
 	gob.Register(MessageLsDirectoryResponse{})
+	gob.Register(MessageMkdir{})
 	gob.Register(MessageMkdirResponse{})
+	gob.Register(FileInfo{})
 }

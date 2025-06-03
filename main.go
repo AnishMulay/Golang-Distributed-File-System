@@ -35,6 +35,11 @@ func createServer(listenAddress string, nodes ...string) *FileServer {
 	return s
 }
 
+func init() {
+	// Register message types for gob encoding/decoding
+	RegisterMessageTypes()
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -166,6 +171,9 @@ func connectToPeer(address string) (peertopeer.Peer, error) {
 
 // sendRequest sends a message to a peer and returns the connection for receiving a response
 func sendRequest(address string, payload interface{}) (peertopeer.Peer, error) {
+	// Ensure message types are registered
+	RegisterMessageTypes()
+	
 	peer, err := connectToPeer(address)
 	if err != nil {
 		return nil, err

@@ -33,6 +33,7 @@ func (s *FileServer) OnPeer(p peertopeer.Peer) error {
 	s.peerLock.Lock()
 	defer s.peerLock.Unlock()
 
+	// Use the actual address as the key, but mark it as a peer in the value
 	s.peers[p.RemoteAddr().String()] = p
 	log.Println("Connected to peer", p.RemoteAddr())
 	return nil

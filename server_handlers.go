@@ -16,6 +16,9 @@ import (
 
 // handleMessage routes incoming messages to the appropriate handler based on message type
 func (s *FileServer) handleMessage(from string, msg *Message) error {
+	// Log the message type for debugging
+	log.Printf("[%s] Handling message of type %T from %s", s.Transport.Addr(), msg.Payload, from)
+	
 	switch v := msg.Payload.(type) {
 	case MessageStoreFile:
 		return s.handleStoreFileMessage(from, v)
@@ -378,14 +381,32 @@ func (s *FileServer) handleMkdirMessage(from string, msg MessageMkdir) error {
 	log.Printf("[%s] Received Mkdir request for %s (recursive: %v)",
 		s.Transport.Addr(), msg.Path, msg.Recursive)
 
+	// Create the directory locally without broadcasting
 	var err error
-	// Create the directory
 	if msg.Recursive {
 		err = s.pathStore.CreateDirRecursive(msg.Path, 0755, false)
 	} else {
 		err = s.pathStore.CreateDir(msg.Path, 0755, false)
 	}
-
+	
+	// Only broadcast if this is a client request (not from another peer)
+	// and if the directory was created successfully
+	if err == nil && from != "" && !strings.HasPrefix(from, "peer:") {
+		// Broadcast to peers
+		go func() {
+			broadcastMsg := Message{
+				Payload: MessageMkdir{
+					Path:      msg.Path,
+					Recursive: msg.Recursive,
+				},
+			}
+			
+			if broadcastErr := s.broadcast(&broadcastMsg); broadcastErr != nil {
+				log.Printf("[%s] Error broadcasting mkdir: %v", s.Transport.Addr(), broadcastErr)
+			}
+		}()
+	}
+	
 	// Send response
 	response := MessageMkdirResponse{
 		Success: err == nil,
@@ -393,6 +414,6 @@ func (s *FileServer) handleMkdirMessage(from string, msg MessageMkdir) error {
 	if err != nil {
 		response.Error = err.Error()
 	}
-
+	
 	return s.sendResponse(from, response)
 }
