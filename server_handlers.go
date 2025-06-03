@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
@@ -341,12 +342,35 @@ func (s *FileServer) handleCatFileMessage(from string, msg MessageCatFile) error
 func (s *FileServer) handleLsDirectoryMessage(from string, msg MessageLsDirectory) error {
 	log.Printf("[%s] Received LsDirectory request for %s", s.Transport.Addr(), msg.Path)
 
-	// For now, just return a message that directory listing is not fully implemented
-	response := MessageLsDirectoryResponse{
-		Files: []FileInfo{},
-		Error: "Directory listing functionality is not fully implemented yet",
+	// List the directory contents
+	entries, err := s.pathStore.ListDir(msg.Path, nil)
+	if err != nil {
+		response := MessageLsDirectoryResponse{
+			Files: []FileInfo{},
+			Error: err.Error(),
+		}
+		return s.sendResponse(from, response)
 	}
-
+	
+	// Convert to FileInfo structs
+	files := make([]FileInfo, 0, len(entries))
+	for _, entry := range entries {
+		fileInfo := FileInfo{
+			Name:    filepath.Base(entry.Path),
+			Size:    entry.Size,
+			Mode:    uint32(entry.Mode),
+			IsDir:   entry.IsDir,
+			ModTime: entry.ModTime.Unix(),
+		}
+		files = append(files, fileInfo)
+	}
+	
+	// Send the response
+	response := MessageLsDirectoryResponse{
+		Files: files,
+		Error: "",
+	}
+	
 	return s.sendResponse(from, response)
 }
 
@@ -354,8 +378,13 @@ func (s *FileServer) handleMkdirMessage(from string, msg MessageMkdir) error {
 	log.Printf("[%s] Received Mkdir request for %s (recursive: %v)",
 		s.Transport.Addr(), msg.Path, msg.Recursive)
 
+	var err error
 	// Create the directory
-	err := s.pathStore.CreateDirRecursive(msg.Path, 0755, msg.Recursive)
+	if msg.Recursive {
+		err = s.pathStore.CreateDirRecursive(msg.Path, 0755, false)
+	} else {
+		err = s.pathStore.CreateDir(msg.Path, 0755, false)
+	}
 
 	// Send response
 	response := MessageMkdirResponse{
