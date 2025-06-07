@@ -99,17 +99,17 @@ func NewStore(opts StoreConfig) *Store {
 }
 
 func (s *Store) Has(key string) bool {
-
-	log.Printf("Checking if key %s exists in store %s/%s", key, s.Root, s.Id)
+	log.Printf("[DEBUG STORE]: Checking if key %s exists in store %s/%s", key, s.Root, s.Id)
 
 	pathKey := s.PathTransform(key)
-
 	fullPathWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, s.Id, pathKey.FullPath())
 
 	_, err := os.Stat(fullPathWithRoot)
 	if errors.Is(err, fs.ErrNotExist) {
+		log.Printf("[DEBUG STORE]: Key %s does not exist in store", key)
 		return false
 	}
+	log.Printf("[DEBUG STORE]: Key %s exists in store", key)
 	return true
 }
 

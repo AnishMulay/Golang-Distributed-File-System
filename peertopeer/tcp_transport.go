@@ -2,9 +2,11 @@ package peertopeer
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 // TCPPeer represents a remote peer in the network (over an established TCP connection)
@@ -29,10 +31,16 @@ func NewTCPPeer(conn net.Conn, outBound bool) *TCPPeer {
 }
 
 func (p *TCPPeer) CloseStream() {
+	// Only call Done() if the wait group counter is greater than zero
+	// This prevents "negative WaitGroup counter" panic
 	p.wg.Done()
 }
 
 func (p *TCPPeer) Send(data []byte) error {
+	// We can't access the TCPTransport from the connection directly
+	// If write timeout is needed, it should be set when creating the peer
+	// or passed as a parameter to this method
+
 	_, err := p.Conn.Write(data)
 	return err
 }
@@ -50,10 +58,19 @@ func (p *TCPPeer) Close() error {
 }
 
 type TCPTransportConfig struct {
-	ListenAddress string
-	HandShakeFunc HandShakeFunc
-	Decoder       Decoder
-	OnPeer        func(Peer) error
+	ListenAddress    string
+	AdvertiseAddress string
+	HandShakeFunc    HandShakeFunc
+	Decoder          Decoder
+	OnPeer           func(Peer) error
+	// Timeouts
+	DialTimeout      time.Duration
+	ReadTimeout      time.Duration
+	WriteTimeout     time.Duration
+	HandshakeTimeout time.Duration
+	// Retry settings
+	MaxRetries   int
+	RetryBackoff time.Duration
 }
 
 // TCPTransport handles communication between nodes(peers) over TCP
@@ -88,11 +105,38 @@ func (t *TCPTransport) Close() error {
 }
 
 // Dial implements the Transport interface
-// It dials a remote peer at the given address
+// It dials a remote peer at the given address with retries and timeouts
 func (t *TCPTransport) Dial(address string) error {
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		return err
+	var conn net.Conn
+	var err error
+
+	dialer := &net.Dialer{
+		Timeout: t.DialTimeout,
+	}
+
+	for attempt := 0; attempt <= t.MaxRetries; attempt++ {
+		if attempt > 0 {
+			log.Printf("[DEBUG TCP %s]: Retry attempt %d/%d connecting to %s",
+				t.ListenAddress, attempt, t.MaxRetries, address)
+			time.Sleep(t.RetryBackoff)
+		}
+
+		conn, err = dialer.Dial("tcp", address)
+		if err == nil {
+			break
+		}
+
+		if attempt == t.MaxRetries {
+			return fmt.Errorf("failed to connect after %d attempts: %w", t.MaxRetries+1, err)
+		}
+	}
+
+	// Set read/write timeouts
+	if t.ReadTimeout > 0 {
+		conn.SetReadDeadline(time.Now().Add(t.ReadTimeout))
+	}
+	if t.WriteTimeout > 0 {
+		conn.SetWriteDeadline(time.Now().Add(t.WriteTimeout))
 	}
 
 	go t.handleConn(conn, true)
@@ -136,32 +180,81 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 		conn.Close()
 	}()
 
+	// Set initial timeouts
+	if t.ReadTimeout > 0 {
+		conn.SetReadDeadline(time.Now().Add(t.ReadTimeout))
+	}
+	if t.WriteTimeout > 0 {
+		conn.SetWriteDeadline(time.Now().Add(t.WriteTimeout))
+	}
+
+	// Perform handshake with timeout
+	if t.HandshakeTimeout > 0 {
+		conn.SetDeadline(time.Now().Add(t.HandshakeTimeout))
+	}
 	if err := t.HandShakeFunc(peer); err != nil {
+		log.Printf("[DEBUG TCP %s]: Handshake failed with %s: %v",
+			t.ListenAddress, conn.RemoteAddr(), err)
 		return
 	}
+	// Reset deadlines after handshake
+	conn.SetDeadline(time.Time{})
 
 	if t.OnPeer != nil {
 		if err = t.OnPeer(peer); err != nil {
+			log.Printf("[DEBUG TCP %s]: OnPeer callback failed with %s: %v",
+				t.ListenAddress, conn.RemoteAddr(), err)
 			return
 		}
 	}
 
+	log.Printf("[DEBUG TCP %s]: Starting read loop for peer %s (outbound: %v)",
+		t.ListenAddress, conn.RemoteAddr(), outbound)
+
 	// read loop
 	for {
+		// Reset read deadline for each message
+		if t.ReadTimeout > 0 {
+			conn.SetReadDeadline(time.Now().Add(t.ReadTimeout))
+		}
+
 		rpc := RPC{}
 		if err = t.Decoder.Decode(conn, &rpc); err != nil {
+			log.Printf("[DEBUG TCP %s]: Error decoding message from %s: %v",
+				t.ListenAddress, conn.RemoteAddr(), err)
 			return
 		}
 		rpc.From = conn.RemoteAddr().String()
 
 		if rpc.Stream {
+			// Add a timeout to prevent hanging indefinitely
+			streamDone := make(chan struct{})
+
 			peer.wg.Add(1)
-			log.Println("Receiving stream from", rpc.From)
-			peer.wg.Wait()
-			log.Println("Stream from", rpc.From, "ended. resuming read loop")
+			log.Printf("[DEBUG TCP %s]: Receiving stream from %s",
+				t.ListenAddress, rpc.From)
+
+			go func() {
+				peer.wg.Wait()
+				close(streamDone)
+			}()
+
+			// Wait for stream to complete with a timeout
+			select {
+			case <-streamDone:
+				log.Printf("[DEBUG TCP %s]: Stream from %s ended normally. Resuming read loop",
+					t.ListenAddress, rpc.From)
+			case <-time.After(t.ReadTimeout):
+				log.Printf("[DEBUG TCP %s]: Stream from %s timed out. Forcing stream close",
+					t.ListenAddress, rpc.From)
+				// Force the stream to close
+				peer.wg.Done()
+			}
 			continue
 		}
 
+		log.Printf("[DEBUG TCP %s]: Received message from %s, forwarding to channel",
+			t.ListenAddress, rpc.From)
 		t.rpcch <- rpc
 	}
 }

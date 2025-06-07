@@ -57,52 +57,114 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 
 // sendResponse sends a response to a peer
 func (s *FileServer) sendResponse(to string, response interface{}) error {
+	// Make sure all types are registered
+	RegisterMessageTypes()
+	
+	s.peerLock.Lock()
 	peer, ok := s.peers[to]
+	s.peerLock.Unlock()
+	
 	if !ok {
+		log.Printf("[DEBUG RESPONSE %s]: Peer %s not found in peer map", s.Transport.Addr(), to)
 		return fmt.Errorf("peer not found in peer map")
 	}
 
-	return gob.NewEncoder(peer).Encode(response)
+	log.Printf("[DEBUG RESPONSE %s]: Sending response of type %T to %s", 
+		s.Transport.Addr(), response, to)
+	
+	// Create a message wrapper for the response
+	msg := Message{
+		Payload: response,
+	}
+	
+	// Encode the message
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
+		log.Printf("[DEBUG RESPONSE %s]: Error encoding response: %v", s.Transport.Addr(), err)
+		return err
+	}
+	
+	// Send the message
+	if err := peer.Send([]byte{peertopeer.IncomingMessage}); err != nil {
+		log.Printf("[DEBUG RESPONSE %s]: Error sending message type: %v", s.Transport.Addr(), err)
+		return err
+	}
+	
+	if err := peer.Send(buf.Bytes()); err != nil {
+		log.Printf("[DEBUG RESPONSE %s]: Error sending response data: %v", s.Transport.Addr(), err)
+		return err
+	}
+	
+	log.Printf("[DEBUG RESPONSE %s]: Successfully sent response to %s", s.Transport.Addr(), to)
+	return nil
 }
 
 // File operation handlers
 func (s *FileServer) handleStoreFileMessage(from string, msg MessageStoreFile) error {
+	log.Printf("[DEBUG STORE %s]: Received StoreFile message from %s for key %s, path %s, size %d", 
+		s.Transport.Addr(), from, msg.Key, msg.Path, msg.Size)
+	
 	peer, ok := s.peers[from]
 	if !ok {
+		log.Printf("[DEBUG STORE %s]: Peer %s not found in peer map", s.Transport.Addr(), from)
 		return fmt.Errorf("peer not found in peer map")
 	}
 
-	// Store the file content
-	log.Printf("[%s]: Storing file (%s) in local store\n", s.Transport.Addr(), msg.Key)
+	// First, store the metadata to ensure it's saved even if content streaming fails
+	fileType := FileTypeRegular
+	if err := s.pathStore.Set(msg.Path, msg.Key, 0, os.FileMode(msg.Mode), fileType); err != nil {
+		log.Printf("[DEBUG STORE %s]: Error setting initial metadata: %v", s.Transport.Addr(), err)
+		return err
+	}
+	log.Printf("[DEBUG STORE %s]: Stored initial metadata for path %s", s.Transport.Addr(), msg.Path)
+
+	// Now read the file content
+	log.Printf("[DEBUG STORE %s]: Waiting for file content stream from %s", s.Transport.Addr(), from)
+	
 	contentBuf := new(bytes.Buffer)
-	n, err := s.store.Write(msg.Key, io.TeeReader(io.LimitReader(peer, msg.Size), contentBuf))
+	limitReader := io.LimitReader(peer, msg.Size)
+	teeReader := io.TeeReader(limitReader, contentBuf)
+	
+	n, err := s.store.Write(msg.Key, teeReader)
 	if err != nil {
+		log.Printf("[DEBUG STORE %s]: Error writing to store: %v", s.Transport.Addr(), err)
 		return err
 	}
 
 	// Print the contents of the file
-	log.Printf("[%s]: File contents: %s\n", s.Transport.Addr(), contentBuf.String())
+	log.Printf("[DEBUG STORE %s]: File contents: %s", s.Transport.Addr(), contentBuf.String())
 
-	// Store the metadata
-	fileType := FileTypeRegular
+	// Update the metadata with the correct size
 	if err := s.pathStore.Set(msg.Path, msg.Key, n, os.FileMode(msg.Mode), fileType); err != nil {
+		log.Printf("[DEBUG STORE %s]: Error updating metadata with size: %v", s.Transport.Addr(), err)
 		return err
 	}
 
-	log.Printf("[%s] Stored %d bytes for path %s\n", s.Transport.Addr(), n, msg.Path)
+	log.Printf("[DEBUG STORE %s]: Successfully stored %d bytes for path %s", s.Transport.Addr(), n, msg.Path)
+	
+	// Make sure to close the stream
 	peer.CloseStream()
+	log.Printf("[DEBUG STORE %s]: Closed stream from %s", s.Transport.Addr(), from)
+	
 	return nil
 }
 
 func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error {
+	log.Printf("[DEBUG HANDLER %s]: Received GetFile request for key %s from %s", 
+		s.Transport.Addr(), msg.Key, from)
+	
 	if !s.store.Has(msg.Key) {
+		log.Printf("[DEBUG HANDLER %s]: Key %s not found in local store", 
+			s.Transport.Addr(), msg.Key)
 		return fmt.Errorf("[%s]: Key not found in local store", s.Transport.Addr())
 	}
 
-	fmt.Printf("DEBUG [%s]: serving file (%s) over the network\n", s.Transport.Addr(), msg.Key)
+	log.Printf("[DEBUG HANDLER %s]: Serving file (%s) over the network to %s", 
+		s.Transport.Addr(), msg.Key, from)
 
 	fileSize, r, err := s.store.Read(msg.Key)
 	if err != nil {
+		log.Printf("[DEBUG HANDLER %s]: Error reading file: %v", s.Transport.Addr(), err)
 		return err
 	}
 
@@ -113,26 +175,41 @@ func (s *FileServer) handleGetFileMessage(from string, msg MessageGetFile) error
 	// Print the contents of the file
 	contentBuf := new(bytes.Buffer)
 	if _, err := io.Copy(contentBuf, r); err != nil {
+		log.Printf("[DEBUG HANDLER %s]: Error copying file contents: %v", s.Transport.Addr(), err)
 		return err
 	}
-	fmt.Printf("DEBUG [%s]: File contents: %s\n", s.Transport.Addr(), contentBuf.String())
+	log.Printf("[DEBUG HANDLER %s]: File contents: %s", s.Transport.Addr(), contentBuf.String())
 
 	// Reset the reader to serve the file over the network
 	r = bytes.NewReader(contentBuf.Bytes())
 
 	peer, ok := s.peers[from]
 	if !ok {
-		return fmt.Errorf("peer %s found in peer map", from)
+		log.Printf("[DEBUG HANDLER %s]: Peer %s not found in peer map", s.Transport.Addr(), from)
+		return fmt.Errorf("peer %s not found in peer map", from)
 	}
 
+	log.Printf("[DEBUG HANDLER %s]: Sending IncomingStream signal to peer %s", 
+		s.Transport.Addr(), from)
 	peer.Send([]byte{peertopeer.IncomingStream})
-	binary.Write(peer, binary.LittleEndian, fileSize)
+	
+	log.Printf("[DEBUG HANDLER %s]: Writing file size %d to peer %s", 
+		s.Transport.Addr(), fileSize, from)
+	err = binary.Write(peer, binary.LittleEndian, fileSize)
+	if err != nil {
+		log.Printf("[DEBUG HANDLER %s]: Error writing file size: %v", s.Transport.Addr(), err)
+		return err
+	}
+	
+	log.Printf("[DEBUG HANDLER %s]: Copying file data to peer %s", s.Transport.Addr(), from)
 	n, err := io.Copy(peer, r)
 	if err != nil {
+		log.Printf("[DEBUG HANDLER %s]: Error copying file data: %v", s.Transport.Addr(), err)
 		return err
 	}
 
-	log.Printf("[%s]: Sent %d bytes to %s\n", s.Transport.Addr(), n, peer.RemoteAddr())
+	log.Printf("[DEBUG HANDLER %s]: Successfully sent %d bytes to %s", 
+		s.Transport.Addr(), n, peer.RemoteAddr())
 	return nil
 }
 
@@ -228,21 +305,38 @@ func (s *FileServer) handlePutFileMessage(from string, msg MessagePutFile) error
 }
 
 func (s *FileServer) handleGetFileContentMessage(from string, msg MessageGetFileContent) error {
-	log.Printf("[%s] Received GetFileContent request for %s", s.Transport.Addr(), msg.Path)
+	log.Printf("[DEBUG CLIENT %s]: Received GetFileContent request for %s from %s", 
+		s.Transport.Addr(), msg.Path, from)
 
 	// Get the file metadata
 	meta, err := s.pathStore.Get(msg.Path)
 	if err != nil {
+		log.Printf("[DEBUG CLIENT %s]: Error getting metadata for %s: %v", 
+			s.Transport.Addr(), msg.Path, err)
 		// Send error response
 		response := MessageGetFileResponse{
 			Error: err.Error(),
 		}
 		return s.sendResponse(from, response)
 	}
+	
+	log.Printf("[DEBUG CLIENT %s]: Found metadata for %s: contentKey=%s, size=%d", 
+		s.Transport.Addr(), msg.Path, meta.ContentKey, meta.Size)
 
-	// Get the file content
-	reader, err := s.GetFile(msg.Path)
+	// Check if content exists in local store
+	if !s.store.Has(meta.ContentKey) {
+		log.Printf("[DEBUG CLIENT %s]: Content key %s not found in local store", 
+			s.Transport.Addr(), meta.ContentKey)
+		response := MessageGetFileResponse{
+			Error: fmt.Sprintf("content for %s not available", msg.Path),
+		}
+		return s.sendResponse(from, response)
+	}
+
+	// Read directly from store instead of using GetFile
+	_, reader, err := s.store.Read(meta.ContentKey)
 	if err != nil {
+		log.Printf("[DEBUG CLIENT %s]: Error reading from store: %v", s.Transport.Addr(), err)
 		response := MessageGetFileResponse{
 			Error: err.Error(),
 		}
@@ -250,15 +344,23 @@ func (s *FileServer) handleGetFileContentMessage(from string, msg MessageGetFile
 	}
 
 	// Read the file content
+	log.Printf("[DEBUG CLIENT %s]: Reading all content for %s", s.Transport.Addr(), msg.Path)
 	content, err := io.ReadAll(reader)
 	if err != nil {
+		log.Printf("[DEBUG CLIENT %s]: Error reading file content for %s: %v", 
+			s.Transport.Addr(), msg.Path, err)
 		response := MessageGetFileResponse{
 			Error: err.Error(),
 		}
 		return s.sendResponse(from, response)
 	}
+	
+	log.Printf("[DEBUG CLIENT %s]: Successfully read %d bytes for %s", 
+		s.Transport.Addr(), len(content), msg.Path)
 
 	// Send the response
+	log.Printf("[DEBUG CLIENT %s]: Sending response with %d bytes for %s", 
+		s.Transport.Addr(), len(content), msg.Path)
 	response := MessageGetFileResponse{
 		Content: content,
 		Mode:    uint32(meta.Mode),
@@ -315,11 +417,45 @@ func (s *FileServer) handleTouchFileMessage(from string, msg MessageTouchFile) e
 }
 
 func (s *FileServer) handleCatFileMessage(from string, msg MessageCatFile) error {
-	log.Printf("[%s] Received CatFile request for %s", s.Transport.Addr(), msg.Path)
+	log.Printf("[DEBUG CAT %s] Received CatFile request for %s from %s", 
+		s.Transport.Addr(), msg.Path, from)
 
-	// Get the file content
-	reader, err := s.GetFile(msg.Path)
+	// Check if file exists locally first
+	if !s.FileExists(msg.Path) {
+		log.Printf("[DEBUG CAT %s] File %s does not exist", s.Transport.Addr(), msg.Path)
+		response := MessageCatFileResponse{
+			Error: fmt.Sprintf("file %s not found", msg.Path),
+		}
+		return s.sendResponse(from, response)
+	}
+
+	// Get metadata directly
+	meta, err := s.pathStore.Get(msg.Path)
 	if err != nil {
+		log.Printf("[DEBUG CAT %s] Error getting metadata: %v", s.Transport.Addr(), err)
+		response := MessageCatFileResponse{
+			Error: err.Error(),
+		}
+		return s.sendResponse(from, response)
+	}
+	
+	log.Printf("[DEBUG CAT %s] Found metadata for %s: contentKey=%s", 
+		s.Transport.Addr(), msg.Path, meta.ContentKey)
+
+	// Check if content exists in local store
+	if !s.store.Has(meta.ContentKey) {
+		log.Printf("[DEBUG CAT %s] Content key %s not found in local store", 
+			s.Transport.Addr(), meta.ContentKey)
+		response := MessageCatFileResponse{
+			Error: fmt.Sprintf("content for %s not available", msg.Path),
+		}
+		return s.sendResponse(from, response)
+	}
+
+	// Read directly from store instead of using GetFile
+	_, reader, err := s.store.Read(meta.ContentKey)
+	if err != nil {
+		log.Printf("[DEBUG CAT %s] Error reading from store: %v", s.Transport.Addr(), err)
 		response := MessageCatFileResponse{
 			Error: err.Error(),
 		}
@@ -329,16 +465,22 @@ func (s *FileServer) handleCatFileMessage(from string, msg MessageCatFile) error
 	// Read the file content
 	content, err := io.ReadAll(reader)
 	if err != nil {
+		log.Printf("[DEBUG CAT %s] Error reading content: %v", s.Transport.Addr(), err)
 		response := MessageCatFileResponse{
 			Error: err.Error(),
 		}
 		return s.sendResponse(from, response)
 	}
 
+	log.Printf("[DEBUG CAT %s] Successfully read %d bytes for %s", 
+		s.Transport.Addr(), len(content), msg.Path)
+
 	// Send the response
 	response := MessageCatFileResponse{
 		Content: content,
 	}
+	log.Printf("[DEBUG CAT %s] Sending response with %d bytes", 
+		s.Transport.Addr(), len(content))
 	return s.sendResponse(from, response)
 }
 

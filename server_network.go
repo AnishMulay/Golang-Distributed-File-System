@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"fmt"
 	"io"
 	"log"
 	"time"
@@ -33,9 +34,20 @@ func (s *FileServer) OnPeer(p peertopeer.Peer) error {
 	s.peerLock.Lock()
 	defer s.peerLock.Unlock()
 
-	// Use the actual address as the key, but mark it as a peer in the value
-	s.peers[p.RemoteAddr().String()] = p
-	log.Println("Connected to peer", p.RemoteAddr())
+	addr := p.RemoteAddr().String()
+	
+	// Use the actual address as the key
+	s.peers[addr] = p
+	
+	log.Printf("[DEBUG PEER %s]: Connected to peer %s, total peers: %d", 
+		s.Transport.Addr(), addr, len(s.peers))
+	
+	// Log all current peers for debugging
+	log.Printf("[DEBUG PEER %s]: Current peers:", s.Transport.Addr())
+	for peerAddr := range s.peers {
+		log.Printf("[DEBUG PEER %s]:   - %s", s.Transport.Addr(), peerAddr)
+	}
+	
 	return nil
 }
 
@@ -81,13 +93,21 @@ func (s *FileServer) bootstrapNetwork() error {
 
 // Get retrieves a file from the network by key
 func (s *FileServer) Get(key string) (io.Reader, error) {
+	log.Printf("[DEBUG GET %s]: Starting Get operation for key %s", s.Transport.Addr(), key)
+
 	if s.store.Has(key) {
-		log.Printf("[%s]: Key found in local store\n", s.Transport.Addr())
+		log.Printf("[DEBUG GET %s]: Key %s found in local store", s.Transport.Addr(), key)
 		_, r, err := s.store.Read(key)
+		if err != nil {
+			log.Printf("[DEBUG GET %s]: Error reading from local store: %v", s.Transport.Addr(), err)
+			return nil, err
+		}
+		log.Printf("[DEBUG GET %s]: Successfully read key %s from local store", s.Transport.Addr(), key)
 		return r, err
 	}
 
-	log.Printf("[%s]: Key not found in local store, broadcasting request\n", s.Transport.Addr())
+	log.Printf("[DEBUG GET %s]: Key %s not found in local store, broadcasting request to %d peers",
+		s.Transport.Addr(), key, len(s.peers))
 
 	msg := Message{
 		Payload: MessageGetFile{
@@ -96,25 +116,51 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 	}
 
 	if err := s.broadcast(&msg); err != nil {
+		log.Printf("[DEBUG GET %s]: Error broadcasting request: %v", s.Transport.Addr(), err)
 		return nil, err
 	}
 
+	log.Printf("[DEBUG GET %s]: Waiting for responses from peers...", s.Transport.Addr())
 	time.Sleep(500 * time.Millisecond)
 
-	for _, peer := range s.peers {
-		var fileSize int64
-		binary.Read(peer, binary.LittleEndian, &fileSize)
-		n, err := s.store.WriteDecryptStream(s.EncryptionKey, key, io.LimitReader(peer, fileSize))
-		if err != nil {
-			return nil, err
-		}
-
-		log.Printf("[%s]: Received %d bytes from %s\n", s.Transport.Addr(), n, peer.RemoteAddr())
-		peer.CloseStream()
+	peerCount := len(s.peers)
+	if peerCount == 0 {
+		log.Printf("[DEBUG GET %s]: No peers available to get file from", s.Transport.Addr())
+		return nil, fmt.Errorf("no peers available to get file from")
 	}
 
-	_, r, err := s.store.Read(key)
-	return r, err
+	log.Printf("[DEBUG GET %s]: Processing responses from %d peers", s.Transport.Addr(), peerCount)
+	for addr, peer := range s.peers {
+		log.Printf("[DEBUG GET %s]: Reading from peer %s", s.Transport.Addr(), addr)
+
+		var fileSize int64
+		err := binary.Read(peer, binary.LittleEndian, &fileSize)
+		if err != nil {
+			log.Printf("[DEBUG GET %s]: Error reading file size from peer %s: %v", s.Transport.Addr(), addr, err)
+			continue
+		}
+
+		log.Printf("[DEBUG GET %s]: Received file size %d from peer %s", s.Transport.Addr(), fileSize, addr)
+
+		n, err := s.store.WriteDecryptStream(s.EncryptionKey, key, io.LimitReader(peer, fileSize))
+		if err != nil {
+			log.Printf("[DEBUG GET %s]: Error writing to local store: %v", s.Transport.Addr(), err)
+			continue
+		}
+
+		log.Printf("[DEBUG GET %s]: Received %d bytes from %s", s.Transport.Addr(), n, peer.RemoteAddr())
+		peer.CloseStream()
+		log.Printf("[DEBUG GET %s]: Closed stream from peer %s", s.Transport.Addr(), addr)
+	}
+
+	if s.store.Has(key) {
+		log.Printf("[DEBUG GET %s]: Successfully retrieved key %s from network", s.Transport.Addr(), key)
+		_, r, err := s.store.Read(key)
+		return r, err
+	}
+
+	log.Printf("[DEBUG GET %s]: Failed to retrieve key %s from network", s.Transport.Addr(), key)
+	return nil, fmt.Errorf("failed to retrieve key %s from network", key)
 }
 
 // Store stores a file in the network

@@ -7,27 +7,46 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
+
 	"time"
 
+	"github.com/AnishMulay/Golang-Distributed-File-System/config"
 	"github.com/AnishMulay/Golang-Distributed-File-System/peertopeer"
 )
 
 // createServer creates a new file server with the given configuration
-func createServer(listenAddress string, nodes ...string) *FileServer {
+func createServer(cfg *config.Config) *FileServer {
 	tcpTransportConfig := peertopeer.TCPTransportConfig{
-		ListenAddress: listenAddress,
-		HandShakeFunc: peertopeer.NOPEHandShakeFunc,
-		Decoder:       peertopeer.DefaultDecoder{},
+		ListenAddress:    cfg.Network.ListenAddress,
+		AdvertiseAddress: cfg.Network.AdvertiseAddress,
+		HandShakeFunc:    peertopeer.NOPEHandShakeFunc,
+		Decoder:          peertopeer.DefaultDecoder{},
+		DialTimeout:      cfg.Network.DialTimeout,
+		ReadTimeout:      cfg.Network.ReadTimeout,
+		WriteTimeout:     cfg.Network.WriteTimeout,
+		HandshakeTimeout: cfg.Network.HandshakeTimeout,
+		MaxRetries:       cfg.Network.MaxRetries,
+		RetryBackoff:     cfg.Network.RetryBackoff,
 	}
 	tcpTransport := peertopeer.NewTCPTransport(tcpTransportConfig)
 
 	fileServerConfig := FileServerConfig{
 		EncryptionKey:     newEncryptionKey(),
-		StorageRoot:       listenAddress + "_store",
+		StorageRoot:       cfg.Storage.StorageRoot,
+		MetadataRoot:      cfg.Storage.MetadataRoot,
 		PathTransformFunc: CASTransformFunc,
 		Transport:         tcpTransport,
-		BootstrapPeers:    nodes,
+		BootstrapPeers:    cfg.PeerNodes,
+		Mode:              cfg.Mode,
+		Role:              cfg.Role,
+		NodeID:            cfg.NodeID,
+		LeaderNodes:       cfg.LeaderNodes,
+		ReplicationFactor: cfg.Replication.Factor,
+		AsyncReplication:  cfg.Replication.AsyncReplication,
+		AsyncQueueSize:    cfg.Replication.AsyncQueueSize,
+		ConsistencyLevel:  cfg.Replication.ConsistencyLevel,
+		DefaultFileMode:   cfg.Storage.DefaultFileMode,
+		MaxFileSize:       cfg.Storage.MaxFileSize,
 	}
 
 	s := NewFileServer(fileServerConfig)
@@ -120,7 +139,7 @@ func main() {
 func printUsage() {
 	fmt.Println("Usage: dfs <command> [arguments]")
 	fmt.Println("Commands:")
-	fmt.Println("  server --port <port> [--peers <peer1,peer2,...>]")
+	fmt.Println("  server --config <config-file>")
 	fmt.Println("  put <server-address> <local-file> <remote-path>")
 	fmt.Println("  get <server-address> <remote-path> <local-file>")
 	fmt.Println("  delete <server-address> <remote-path>")
@@ -129,34 +148,34 @@ func printUsage() {
 	fmt.Println("  touch <server-address> <remote-path>")
 	fmt.Println("  cat <server-address> <remote-path>")
 	fmt.Println("  mkdir <server-address> <remote-path> [--recursive]")
+	fmt.Println("\nFor server configuration, see config/config.yaml.example")
 }
 
 func runServer() {
-	var port string
-	var peers string
+	var configPath string
 
 	for i := 2; i < len(os.Args); i++ {
-		if os.Args[i] == "--port" && i+1 < len(os.Args) {
-			port = os.Args[i+1]
-			i++
-		} else if os.Args[i] == "--peers" && i+1 < len(os.Args) {
-			peers = os.Args[i+1]
+		if os.Args[i] == "--config" && i+1 < len(os.Args) {
+			configPath = os.Args[i+1]
 			i++
 		}
 	}
 
-	if port == "" {
-		port = "3000"
+	if configPath == "" {
+		log.Fatal("--config flag is required")
 	}
 
-	listenAddress := ":" + port
-	var nodes []string
-	if peers != "" {
-		nodes = strings.Split(peers, ",")
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	server := createServer(listenAddress, nodes...)
-	log.Printf("Starting server on %s with peers %v\n", listenAddress, nodes)
+	server := createServer(cfg)
+	log.Printf("Starting server in %s mode as %s on %s\n", cfg.Mode, cfg.Role, cfg.Network.ListenAddress)
+	log.Printf("Peer nodes: %v\n", cfg.PeerNodes)
+	if cfg.Mode == config.SingleLeader && cfg.Role == config.Follower {
+		log.Printf("Leader nodes: %v\n", cfg.LeaderNodes)
+	}
 	log.Fatal(server.Start())
 }
 
@@ -173,7 +192,7 @@ func connectToPeer(address string) (peertopeer.Peer, error) {
 func sendRequest(address string, payload interface{}) (peertopeer.Peer, error) {
 	// Ensure message types are registered
 	RegisterMessageTypes()
-	
+
 	peer, err := connectToPeer(address)
 	if err != nil {
 		return nil, err
@@ -207,8 +226,59 @@ func sendCommand(address string, payload interface{}) error {
 
 // receiveResponse receives and decodes a response from a peer
 func receiveResponse(peer peertopeer.Peer, response interface{}) error {
+	// Make sure we've registered all types
+	RegisterMessageTypes()
+
+	// First decode the message wrapper
+	var msg Message
 	decoder := gob.NewDecoder(peer)
-	return decoder.Decode(response)
+
+	log.Printf("Waiting for response...")
+	if err := decoder.Decode(&msg); err != nil {
+		return fmt.Errorf("error decoding message: %w", err)
+	}
+	log.Printf("Received response of type %T", msg.Payload)
+
+	// Then extract the payload and convert it to the expected response type
+	switch v := msg.Payload.(type) {
+	case MessageGetFileResponse:
+		if r, ok := response.(*MessageGetFileResponse); ok {
+			*r = v
+			return nil
+		}
+	case MessageDeleteFileResponse:
+		if r, ok := response.(*MessageDeleteFileResponse); ok {
+			*r = v
+			return nil
+		}
+	case MessageFileExistsResponse:
+		if r, ok := response.(*MessageFileExistsResponse); ok {
+			*r = v
+			return nil
+		}
+	case MessageTouchFileResponse:
+		if r, ok := response.(*MessageTouchFileResponse); ok {
+			*r = v
+			return nil
+		}
+	case MessageCatFileResponse:
+		if r, ok := response.(*MessageCatFileResponse); ok {
+			*r = v
+			return nil
+		}
+	case MessageLsDirectoryResponse:
+		if r, ok := response.(*MessageLsDirectoryResponse); ok {
+			*r = v
+			return nil
+		}
+	case MessageMkdirResponse:
+		if r, ok := response.(*MessageMkdirResponse); ok {
+			*r = v
+			return nil
+		}
+	}
+
+	return fmt.Errorf("unexpected response type: %T", msg.Payload)
 }
 
 func runPut(serverAddress, localFile, remotePath string) {
@@ -392,6 +462,9 @@ func runTouch(serverAddress, remotePath string) {
 }
 
 func runCat(serverAddress, remotePath string) {
+	// Register message types to ensure proper encoding/decoding
+	RegisterMessageTypes()
+
 	// Send the cat request
 	peer, err := sendRequest(serverAddress, MessageCatFile{Path: remotePath})
 	if err != nil {
@@ -399,8 +472,12 @@ func runCat(serverAddress, remotePath string) {
 	}
 	defer peer.Close()
 
-	// Wait for response
+	log.Printf("Sent cat request for %s to %s, waiting for response...", remotePath, serverAddress)
+
+	// Create a response object
 	var response MessageCatFileResponse
+
+	// Use the common receiveResponse function
 	if err := receiveResponse(peer, &response); err != nil {
 		log.Fatalf("Failed to decode response: %v", err)
 	}

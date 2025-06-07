@@ -1,0 +1,38 @@
+# Node Configuration
+mode: "single-leader"  # Options: single-leader, multi-leader, leaderless
+role: "leader"        # Options: leader, follower
+node_id: "node1"      # Unique identifier for this node
+
+# Peer nodes in the cluster
+peer_nodes:
+  - "localhost:3001"
+  - "localhost:3002"
+
+# Leader nodes (required for follower nodes in single-leader mode)
+leader_nodes:
+  - "localhost:3000"
+
+# Network Configuration
+network:
+  listen_address: ":3000"
+  advertise_address: "localhost:3000"
+  dial_timeout: "5s"
+  read_timeout: "5s"
+  write_timeout: "5s"
+  handshake_timeout: "3s"
+  max_retries: 3
+  retry_backoff: "1s"
+
+# Storage Configuration
+storage:
+  storage_root: "/var/lib/dfs/data"
+  metadata_root: "/var/lib/dfs/metadata"
+  default_file_mode: 0644
+  max_file_size: 1073741824  # 1GB in bytes
+
+# Replication Configuration
+replication:
+  factor: 3                  # Number of replicas to maintain
+  async_replication: false   # Enable/disable async replication
+  async_queue_size: 1000     # Size of async replication queue
+  consistency_level: "quorum" # Options: one, quorum, all

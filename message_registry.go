@@ -6,7 +6,10 @@ import (
 
 // RegisterMessageTypes registers all message types with gob
 func RegisterMessageTypes() {
-	// Register message types
+	// Register the Message type itself
+	gob.Register(Message{})
+	
+	// Register all message payload types
 	gob.Register(MessageStoreFile{})
 	gob.Register(MessageGetFile{})
 	gob.Register(MessageDeleteFile{})
@@ -30,4 +33,8 @@ func RegisterMessageTypes() {
 	gob.Register(MessageMkdir{})
 	gob.Register(MessageMkdirResponse{})
 	gob.Register(FileInfo{})
+	
+	// Register slice types that might be used
+	gob.Register([]byte{})
+	gob.Register([]FileInfo{})
 }

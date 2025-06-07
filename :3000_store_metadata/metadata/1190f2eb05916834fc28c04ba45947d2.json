@@ -1,0 +1,15 @@
+{
+  "path": "/test.txt",
+  "contentKey": "/test.txt",
+  "size": 23,
+  "mode": 420,
+  "modTime": "2025-06-05T21:49:03.1962377-04:00",
+  "createTime": "2025-06-05T21:49:03.1962377-04:00",
+  "accessTime": "2025-06-05T21:49:03.1962377-04:00",
+  "type": 0,
+  "owner": "default",
+  "group": "default",
+  "isDir": false,
+  "isHidden": false,
+  "children": []
+}
